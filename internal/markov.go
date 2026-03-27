@@ -105,10 +105,12 @@ func (m *InmemoryModel) NextWord(word string) (string, error) {
 	return "", fmt.Errorf("no transition word could be chosen for: %s", word)
 }
 
+// Returns string combining starting-word and generated text
 func (m *InmemoryModel) GenerateSentence(start string) (string, error) {
 	sentence := make([]string, 0)
 	word := start
 	for {
+		sentence = append(sentence, word)
 		n, err := m.NextWord(word)
 		if err == EndOfOutputErr {
 			break
@@ -117,7 +119,6 @@ func (m *InmemoryModel) GenerateSentence(start string) (string, error) {
 		} else if n == EndOfOutput {
 			break
 		}
-		sentence = append(sentence, n)
 		word = n
 	}
 	return strings.Join(sentence, " "), nil
