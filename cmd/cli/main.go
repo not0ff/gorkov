@@ -18,6 +18,8 @@ package main
 
 import (
 	"bufio"
+	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -25,11 +27,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
-	"github.com/not0ff/gorkov/internal"
+	"github.com/not0ff/gorkov/internal/database"
+	"github.com/not0ff/gorkov/internal/model"
+	internal "github.com/not0ff/gorkov/internal/model"
 )
 
-func updateModel(filepath string, model internal.MarkovModel) error {
+func updateModel(filepath string, model *internal.DBModel) error {
 	file, err := os.Open(filepath)
 	if err != nil {
 		return err
@@ -48,11 +53,17 @@ func updateModel(filepath string, model internal.MarkovModel) error {
 		}
 		return 0, nil, nil
 	})
+
+	lines := make([]string, 0)
 	for scanner.Scan() {
-		str := scanner.Text()
-		str = internal.ClearString(str)
-		model.UpdateFromString(str)
+		lines = append(lines, scanner.Text())
 	}
+	t := time.Now()
+	if err := model.AddTransitions(lines); err != nil {
+		return err
+	}
+	log.Printf("Creating transitions from file took: %s\n", time.Since(t).String())
+
 	return nil
 }
 
@@ -60,9 +71,10 @@ var (
 	sourceFile = flag.String("fromFile", "", "Text file to create the transition matrix from")
 	sourceDir  = flag.String("fromDir", "", "Directory with text files for creating transition matrix")
 	initWord   = flag.String("initWord", "", "First word to strat the generation from")
-	dumpCounts = flag.Bool("dumpCounts", false, "Print generated counts matrix instead of text")
-	dumpProbs  = flag.Bool("dumpProbs", false, "Print generated probabilities instead of text")
 )
+
+//go:embed schema.sql
+var Schema string
 
 func main() {
 	flag.Parse()
@@ -72,43 +84,61 @@ func main() {
 		os.Exit(1)
 	}
 
-	if len(*initWord) == 0 && !(*dumpCounts || *dumpProbs) {
+	if len(*initWord) == 0 {
 		fmt.Println("No initial word provided. Use -h to view usage.")
 		os.Exit(1)
 	}
 
-	model := internal.NewModel()
+	ctx := context.Background()
+	db, err := database.Open(ctx, &database.DbConfig{
+		DriverName: "sqlite3",
+		Dsn:        "file:db/db.sqlite",
+		Schema:     Schema,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	model := model.NewDBModel(ctx, db)
 
 	if len(*sourceFile) != 0 {
-		updateModel(*sourceFile, model)
+		if err := updateModel(*sourceFile, model); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	if len(*sourceDir) != 0 {
+		files, _ := os.ReadDir(*sourceDir)
+		fileCount := len(files)
+
+		var i int
 		filepath.WalkDir(*sourceDir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
 			if d.Type().IsRegular() {
-				updateModel(path, model)
+				log.Printf("%d/%d", i, fileCount)
+				if err := updateModel(path, model); err != nil {
+					log.Fatal(err)
+				}
+				i++
 			}
 			return nil
 		})
 	}
 
-	model.UpdateProbabilities()
-
-	if *dumpCounts {
-		fmt.Println(model.Counts)
-		return
-	} else if *dumpProbs {
-		fmt.Println(model.Probabilities)
-		return
+	t := time.Now()
+	if err := model.CalcAllProbabilities(); err != nil {
+		log.Fatal(err)
 	}
+	log.Printf("Updating model probabilities took: %s\n", time.Since(t).String())
 
+	t = time.Now()
 	sentence, err := model.GenerateSentence(*initWord)
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Printf("Generating sentence took: %s\n", time.Since(t).String())
 
 	fmt.Println(sentence)
 }

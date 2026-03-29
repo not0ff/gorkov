@@ -14,44 +14,19 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package internal
+package discord
 
 import (
-	"strings"
-	"unicode"
+	"sync"
+
+	"github.com/not0ff/gorkov/internal/model"
 )
 
-func IterNgram(seq []string, n int) func() []string {
-	i := 0
-	return func() []string {
-		if i+n >= len(seq) {
-			return nil
-		}
-		sl := make([]string, 0, n)
-		for off := range n {
-			sl = append(sl, seq[i+off])
-		}
-
-		i++
-		return sl
-	}
+type Session struct {
+	Model model.MarkovModel
+	mu    sync.Mutex
 }
 
-func Ngram(seq []string, n int) [][]string {
-	ngram := make([][]string, 0)
-	for i := range len(seq) - n + 1 {
-		ngram = append(ngram, seq[i:i+n])
-	}
-	return ngram
-}
-
-func ClearString(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	s = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune(" .?!", r) {
-			return r
-		}
-		return -1
-	}, s)
-	return strings.ToLower(s)
+func NewSession(model model.MarkovModel) *Session {
+	return &Session{Model: model}
 }

@@ -14,68 +14,48 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package main
+package discord
 
 import (
 	"fmt"
-	"log"
-	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/not0ff/gorkov/internal"
+	"github.com/not0ff/gorkov/internal/model"
 )
 
-var (
-	Token string
-	Model *internal.InmemoryModel
-)
-
-func init() {
-	Token = os.Getenv("TOKEN")
-	if len(Token) == 0 {
-		log.Fatalln("discord token missing in env")
-	}
-
-	Model = internal.NewModel()
+type Handler struct {
+	s *Session
 }
 
-func main() {
-	s, err := discordgo.New("Bot " + Token)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	s.AddHandler(messageCreate)
-
-	s.Identify.Intents = discordgo.IntentsGuildMessages
-
-	if err := s.Open(); err != nil {
-		log.Fatal(err)
-	}
-	defer s.Close()
-	log.Println("Bot is running")
-
-	exit := make(chan os.Signal, 1)
-	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	log.Println("Press Ctrl+C to exit")
-	<-exit
+func NewHandler(s *Session) *Handler {
+	return &Handler{s: s}
 }
 
-func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
 
 	if str, ok := strings.CutPrefix(m.Content, "!learn"); ok {
-		str = internal.ClearString(str)
-		Model.UpdateFromString(str)
-		Model.UpdateProbabilities()
+		strs := strings.Split(str, "\n")
+		words := make([]string, 0)
+		for i, str := range strs {
+			str = model.ClearString(str)
+			strs[i] = str
+			words = append(words, strings.Fields(str)...)
+		}
+
+		h.s.mu.Lock()
+		h.s.Model.AddTransitions(strs)
+		h.s.Model.CalcProbabilitiesForWords(words)
+		h.s.mu.Unlock()
 	} else if str, ok := strings.CutPrefix(m.Content, "!say"); ok {
 		word := strings.Fields(str)[0]
-		sentence, err := Model.GenerateSentence(internal.ClearString(word))
+
+		h.s.mu.Lock()
+		sentence, err := h.s.Model.GenerateSentence(model.ClearString(word))
+		h.s.mu.Unlock()
 
 		var resp string
 		if err != nil {

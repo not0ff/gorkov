@@ -14,7 +14,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package internal
+package model
 
 import (
 	"errors"
@@ -24,10 +24,16 @@ import (
 )
 
 type MarkovModel interface {
-	UpdatePairCount(word, next string)
-	UpdateFromString(str string)
-	UpdateProbabilities()
-	NextWord(word string) (string, error)
+	// Add word transitions from each string in a slice to the model
+	AddTransitions(strs []string) error
+
+	// Recalculate next word probabilities for passed words
+	CalcProbabilitiesForWords(words []string) error
+
+	// Recalculate probabilities for all words saved in the model
+	CalcAllProbabilities() error
+
+	// Returns a sentence combining start word and generated rest
 	GenerateSentence(start string) (string, error)
 }
 
@@ -44,29 +50,53 @@ func NewModel() *InmemoryModel {
 	return &InmemoryModel{Counts: map[string]map[string]uint{}, Probabilities: map[string]map[string]float32{}}
 }
 
-func (m *InmemoryModel) UpdatePairCount(word, next string) {
+func (m *InmemoryModel) addTransition(word, next string) {
 	if m.Counts[word] == nil {
 		m.Counts[word] = map[string]uint{}
 	}
 	m.Counts[word][next]++
 }
 
-// Expects cleaned and normalized text
-func (m *InmemoryModel) UpdateFromString(str string) {
-	seq := strings.Fields(str)
-	seq = append(seq, EndOfOutput)
+func (m *InmemoryModel) AddTransitions(strs []string) error {
+	for _, s := range strs {
+		seq := strings.Fields(ClearString(s))
+		seq = append(seq, EndOfOutput)
 
-	next := IterNgram(seq, 2)
-	for {
-		ngram := next()
-		if ngram == nil {
-			break
+		next := IterNgram(seq, 2)
+		for {
+			ngram := next()
+			if ngram == nil {
+				break
+			}
+			m.addTransition(ngram[0], ngram[1])
 		}
-		m.UpdatePairCount(ngram[0], ngram[1])
 	}
+	return nil
 }
 
-func (m *InmemoryModel) UpdateProbabilities() {
+func (m *InmemoryModel) CalcProbabilitiesForWords(words []string) error {
+	for _, word := range words {
+		next := m.Counts[word]
+
+		var count uint
+		for _, c := range next {
+			count += c
+		}
+		if count == 0 {
+			continue
+		}
+
+		if m.Probabilities[word] == nil {
+			m.Probabilities[word] = make(map[string]float32, len(next))
+		}
+		for n, c := range next {
+			m.Probabilities[word][n] = float32(c) / float32(count)
+		}
+	}
+	return nil
+}
+
+func (m *InmemoryModel) CalcAllProbabilities() error {
 	for word, next := range m.Counts {
 		var count uint
 		for _, c := range next {
@@ -83,9 +113,10 @@ func (m *InmemoryModel) UpdateProbabilities() {
 			m.Probabilities[word][n] = float32(c) / float32(count)
 		}
 	}
+	return nil
 }
 
-func (m *InmemoryModel) NextWord(word string) (string, error) {
+func (m *InmemoryModel) nextWord(word string) (string, error) {
 	if m.Probabilities[word] == nil {
 		return "", EndOfOutputErr
 	}
@@ -105,13 +136,12 @@ func (m *InmemoryModel) NextWord(word string) (string, error) {
 	return "", fmt.Errorf("no transition word could be chosen for: %s", word)
 }
 
-// Returns string combining starting-word and generated text
 func (m *InmemoryModel) GenerateSentence(start string) (string, error) {
 	sentence := make([]string, 0)
 	word := start
 	for {
 		sentence = append(sentence, word)
-		n, err := m.NextWord(word)
+		n, err := m.nextWord(word)
 		if err == EndOfOutputErr {
 			break
 		} else if err != nil {
