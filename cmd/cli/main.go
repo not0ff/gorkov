@@ -31,10 +31,9 @@ import (
 
 	"github.com/not0ff/gorkov/internal/database"
 	"github.com/not0ff/gorkov/internal/model"
-	internal "github.com/not0ff/gorkov/internal/model"
 )
 
-func updateModel(filepath string, model *internal.DBModel) error {
+func updateModel(filepath string, model *model.DBModel) error {
 	file, err := os.Open(filepath)
 	if err != nil {
 		return err

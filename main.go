@@ -17,19 +17,24 @@
 package main
 
 import (
+	"context"
+	_ "embed"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/not0ff/gorkov/internal/database"
 	"github.com/not0ff/gorkov/internal/discord"
 	"github.com/not0ff/gorkov/internal/model"
 )
 
 var (
+	//go:embed schema.sql
+	Schema string
+
 	Token string
-	Model *model.InmemoryModel
 )
 
 func init() {
@@ -37,8 +42,6 @@ func init() {
 	if len(Token) == 0 {
 		log.Fatalln("discord token missing in env")
 	}
-
-	Model = model.NewModel()
 }
 
 func main() {
@@ -47,7 +50,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	s := discord.NewSession(Model)
+	ctx := context.Background()
+	db, err := database.Open(ctx, &database.DbConfig{
+		DriverName: "sqlite3",
+		Dsn:        "file:db/db.sqlite",
+		Schema:     Schema,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	model := model.NewDBModel(ctx, db)
+
+	s := discord.NewSession(model)
 	h := discord.NewHandler(s)
 	bot.AddHandler(h.MessageCreate)
 
