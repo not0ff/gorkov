@@ -22,6 +22,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand/v2"
 	"strings"
 
@@ -31,7 +32,8 @@ import (
 )
 
 type MarkovModel interface {
-	// Add word transitions from each string in a slice to the model
+	// Add word transitions from each string to the model.
+	// This function does not preprocess strings but only splits them on whitespace
 	AddTransitions(strs []string, ctx context.Context) error
 
 	// Recalculate next word probabilities for passed words
@@ -52,12 +54,13 @@ const EndOfOutput = "<END>"
 type DBModel struct {
 	db      *sql.DB
 	queries *repo.Queries
+	guildID string
 }
 
-func NewDBModel(db *sql.DB) MarkovModel {
+func NewDBModel(db *sql.DB, guildID string) MarkovModel {
 	queries := repo.New(db)
 	dbModel := DBModel{
-		db: db, queries: queries,
+		db: db, queries: queries, guildID: guildID,
 	}
 
 	return &dbModel
@@ -72,7 +75,7 @@ func (m *DBModel) AddTransitions(strs []string, ctx context.Context) error {
 	qtx := m.queries.WithTx(tx)
 
 	for _, s := range strs {
-		seq := strings.Fields(ClearString(s))
+		seq := strings.Fields(s)
 		seq = append(seq, EndOfOutput)
 
 		next := IterNgram(seq, 2)
@@ -83,19 +86,27 @@ func (m *DBModel) AddTransitions(strs []string, ctx context.Context) error {
 			}
 			wordId, err := qtx.CreateWord(ctx, ngram[0])
 			if err != nil {
-				return err
+				return fmt.Errorf("error creating first word: %w", err)
 			}
 
 			nextId, err := qtx.CreateWord(ctx, ngram[1])
 			if err != nil {
-				return err
+				return fmt.Errorf("error creating second word: %w", err)
 			}
 
-			if err = qtx.CreateTransitionOrIncrement(
-				ctx, repo.CreateTransitionOrIncrementParams{
-					WordID: wordId, NextID: nextId,
-				}); err != nil {
-				return err
+			trans_id, err := qtx.CreateTransition(ctx, repo.CreateTransitionParams{
+				WordID: wordId,
+				NextID: nextId,
+			})
+			if err != nil {
+				return fmt.Errorf("error creating transition: %w", err)
+			}
+
+			if err := qtx.IncrementTransitionCount(ctx, repo.IncrementTransitionCountParams{
+				GuildID:      m.guildID,
+				TransitionID: trans_id,
+			}); err != nil {
+				return fmt.Errorf("error incrementing transition count: %w", err)
 			}
 		}
 	}
@@ -114,25 +125,28 @@ func (m *DBModel) CalcProbabilitiesForWords(words []string, ctx context.Context)
 	for _, w := range words {
 		id, err := qtx.GetWordId(ctx, w)
 		if err != nil {
-			return err
+			return fmt.Errorf("error getting id for word \"%s\": %w", w, err)
 		}
 
-		trans, err := qtx.GetTransitions(ctx, id)
+		probs, err := qtx.GetProbablities(ctx, repo.GetProbablitiesParams{
+			GuildID: m.guildID,
+			WordID:  id,
+		})
 		if err != nil {
-			return err
+			return fmt.Errorf("error getting probabilities for wordId %d and guildId %s: %w", id, m.guildID, err)
 		}
 
 		var count int64
-		for _, t := range trans {
-			count += t.Count
+		for _, p := range probs {
+			count += p.Count
 		}
 
-		for _, t := range trans {
-			if err = qtx.SetTransitionProbability(ctx, repo.SetTransitionProbabilityParams{
-				ID:          t.ID,
-				Probability: float64(t.Count) / float64(count),
+		for _, p := range probs {
+			if err = qtx.SetProbability(ctx, repo.SetProbabilityParams{
+				ID:          p.ID,
+				Probability: float64(p.Count) / float64(count),
 			}); err != nil {
-				return err
+				return fmt.Errorf("error setting probability for id %d: %w", p.ID, err)
 			}
 		}
 	}
@@ -149,26 +163,30 @@ func (m *DBModel) CalcAllProbabilities(ctx context.Context) error {
 
 	words, err := qtx.GetAllWords(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting all words: %w", err)
 	}
 
 	for _, w := range words {
-		trans, err := qtx.GetTransitions(ctx, w.ID)
+		probs, err := qtx.GetProbablities(ctx, repo.GetProbablitiesParams{
+			GuildID: m.guildID,
+			WordID:  w.ID,
+		})
 		if err != nil {
-			return err
+			return fmt.Errorf("error getting probabilities for wordId %d and guildId %s: %w", w.ID, m.guildID, err)
+
 		}
 
 		var count int64
-		for _, t := range trans {
-			count += t.Count
+		for _, p := range probs {
+			count += p.Count
 		}
 
-		for _, t := range trans {
-			if err = qtx.SetTransitionProbability(ctx, repo.SetTransitionProbabilityParams{
-				ID:          t.ID,
-				Probability: float64(t.Count) / float64(count),
+		for _, p := range probs {
+			if err = qtx.SetProbability(ctx, repo.SetProbabilityParams{
+				ID:          p.ID,
+				Probability: float64(p.Count) / float64(count),
 			}); err != nil {
-				return err
+				return fmt.Errorf("error setting probability for id %d: %w", p.ID, err)
 			}
 		}
 
@@ -179,22 +197,29 @@ func (m *DBModel) CalcAllProbabilities(ctx context.Context) error {
 func (m *DBModel) nextWord(word string, ctx context.Context) (string, error) {
 	id, err := m.queries.GetWordId(ctx, word)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error getting id for word \"%s\": %w", word, err)
 	}
 
-	trans, err := m.queries.GetTransitions(ctx, id)
-	if err != nil {
-		return "", err
+	probs, err := m.queries.GetProbablities(ctx, repo.GetProbablitiesParams{
+		GuildID: m.guildID,
+		WordID:  id,
+	})
+	if err == sql.ErrNoRows || len(probs) == 0 {
+		return "", sql.ErrNoRows
+	} else if err != nil {
+		return "", fmt.Errorf("error getting probabilities for wordId %d and guildId %s: %w", id, m.guildID, err)
 	}
+	log.Printf("%#v\n", probs)
 
 	r := rand.Float64()
 	var prob float64
-	for _, t := range trans {
-		prob += t.Probability
+	for _, p := range probs {
+		log.Printf("%#v\n", p)
+		prob += p.Probability
 		if r <= prob {
-			next, err := m.queries.GetWord(ctx, t.NextID)
+			next, err := m.queries.GetWord(ctx, p.NextID)
 			if err != nil {
-				return "", err
+				return "", fmt.Errorf("error getting word from id %d: %w", p.NextID, err)
 			}
 			return next.Word, nil
 		}
@@ -213,7 +238,7 @@ func (m *DBModel) GenerateSentence(start string, ctx context.Context) (string, e
 	for {
 		sentence = append(sentence, word)
 		next, err := m.nextWord(word, ctx)
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return "", EmptyOutputErr
 		} else if err != nil {
 			return "", err
@@ -225,4 +250,28 @@ func (m *DBModel) GenerateSentence(start string, ctx context.Context) (string, e
 		word = next
 	}
 	return strings.Join(sentence, " "), nil
+}
+
+func IterNgram(seq []string, n int) func() []string {
+	i := 0
+	return func() []string {
+		if i+n-1 >= len(seq) {
+			return nil
+		}
+		sl := make([]string, 0, n)
+		for off := range n {
+			sl = append(sl, seq[i+off])
+		}
+
+		i++
+		return sl
+	}
+}
+
+func Ngram(seq []string, n int) [][]string {
+	ngram := make([][]string, 0)
+	for i := range len(seq) - n + 1 {
+		ngram = append(ngram, seq[i:i+n])
+	}
+	return ngram
 }

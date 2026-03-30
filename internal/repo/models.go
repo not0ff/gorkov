@@ -4,12 +4,18 @@
 
 package repo
 
+type Probability struct {
+	ID           int64
+	GuildID      string
+	TransitionID int64
+	Count        int64
+	Probability  float64
+}
+
 type Transition struct {
-	ID          int64
-	WordID      int64
-	NextID      int64
-	Count       int64
-	Probability float64
+	ID     int64
+	WordID int64
+	NextID int64
 }
 
 type Word struct {

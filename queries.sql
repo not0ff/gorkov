@@ -1,7 +1,7 @@
 -- name: CreateWord :one
 INSERT INTO words (word)
 VALUES (?)
-ON CONFLICT (word) DO UPDATE
+ON CONFLICT(word) DO UPDATE
     SET word = excluded.word
 RETURNING id;
 
@@ -17,17 +17,26 @@ LIMIT 1;
 -- name: GetAllWords :many
 SELECT * FROM words;
 
--- name: CreateTransitionOrIncrement :exec
+-- name: CreateTransition :one
 INSERT INTO transitions (word_id, next_id)
 VALUES (?, ?)
-ON CONFLICT (word_id, next_id) DO UPDATE 
-    SET count = count + 1;
+ON CONFLICT(word_id, next_id) DO UPDATE
+SET word_id = transitions.word_id
+RETURNING id;
 
--- name: GetTransitions :many
-SELECT * FROM transitions
-WHERE word_id = ?;
+-- name: IncrementTransitionCount :exec
+INSERT INTO probabilities (guild_id, transition_id)
+VALUES (?, ?)
+ON CONFLICT(guild_id, transition_id) DO UPDATE
+SET count = count + 1;
 
--- name: SetTransitionProbability :exec
-UPDATE transitions
+-- name: GetProbablities :many
+SELECT p.*, t.next_id
+FROM probabilities p
+INNER JOIN transitions t ON t.id = p.transition_id
+WHERE p.guild_id = ? AND t.word_id = ?;
+
+-- name: SetProbability :exec
+UPDATE probabilities 
 SET probability = ?
 WHERE id = ?;

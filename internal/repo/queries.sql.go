@@ -9,27 +9,30 @@ import (
 	"context"
 )
 
-const createTransitionOrIncrement = `-- name: CreateTransitionOrIncrement :exec
+const createTransition = `-- name: CreateTransition :one
 INSERT INTO transitions (word_id, next_id)
 VALUES (?, ?)
-ON CONFLICT (word_id, next_id) DO UPDATE 
-    SET count = count + 1
+ON CONFLICT(word_id, next_id) DO UPDATE
+SET word_id = transitions.word_id
+RETURNING id
 `
 
-type CreateTransitionOrIncrementParams struct {
+type CreateTransitionParams struct {
 	WordID int64
 	NextID int64
 }
 
-func (q *Queries) CreateTransitionOrIncrement(ctx context.Context, arg CreateTransitionOrIncrementParams) error {
-	_, err := q.db.ExecContext(ctx, createTransitionOrIncrement, arg.WordID, arg.NextID)
-	return err
+func (q *Queries) CreateTransition(ctx context.Context, arg CreateTransitionParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, createTransition, arg.WordID, arg.NextID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const createWord = `-- name: CreateWord :one
 INSERT INTO words (word)
 VALUES (?)
-ON CONFLICT (word) DO UPDATE
+ON CONFLICT(word) DO UPDATE
     SET word = excluded.word
 RETURNING id
 `
@@ -68,26 +71,43 @@ func (q *Queries) GetAllWords(ctx context.Context) ([]Word, error) {
 	return items, nil
 }
 
-const getTransitions = `-- name: GetTransitions :many
-SELECT id, word_id, next_id, count, probability FROM transitions
-WHERE word_id = ?
+const getProbablities = `-- name: GetProbablities :many
+SELECT p.id, p.guild_id, p.transition_id, p.count, p.probability, t.next_id
+FROM probabilities p
+INNER JOIN transitions t ON t.id = p.transition_id
+WHERE p.guild_id = ? AND t.word_id = ?
 `
 
-func (q *Queries) GetTransitions(ctx context.Context, wordID int64) ([]Transition, error) {
-	rows, err := q.db.QueryContext(ctx, getTransitions, wordID)
+type GetProbablitiesParams struct {
+	GuildID string
+	WordID  int64
+}
+
+type GetProbablitiesRow struct {
+	ID           int64
+	GuildID      string
+	TransitionID int64
+	Count        int64
+	Probability  float64
+	NextID       int64
+}
+
+func (q *Queries) GetProbablities(ctx context.Context, arg GetProbablitiesParams) ([]GetProbablitiesRow, error) {
+	rows, err := q.db.QueryContext(ctx, getProbablities, arg.GuildID, arg.WordID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Transition
+	var items []GetProbablitiesRow
 	for rows.Next() {
-		var i Transition
+		var i GetProbablitiesRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.WordID,
-			&i.NextID,
+			&i.GuildID,
+			&i.TransitionID,
 			&i.Count,
 			&i.Probability,
+			&i.NextID,
 		); err != nil {
 			return nil, err
 		}
@@ -127,18 +147,35 @@ func (q *Queries) GetWordId(ctx context.Context, word string) (int64, error) {
 	return id, err
 }
 
-const setTransitionProbability = `-- name: SetTransitionProbability :exec
-UPDATE transitions
+const incrementTransitionCount = `-- name: IncrementTransitionCount :exec
+INSERT INTO probabilities (guild_id, transition_id)
+VALUES (?, ?)
+ON CONFLICT(guild_id, transition_id) DO UPDATE
+SET count = count + 1
+`
+
+type IncrementTransitionCountParams struct {
+	GuildID      string
+	TransitionID int64
+}
+
+func (q *Queries) IncrementTransitionCount(ctx context.Context, arg IncrementTransitionCountParams) error {
+	_, err := q.db.ExecContext(ctx, incrementTransitionCount, arg.GuildID, arg.TransitionID)
+	return err
+}
+
+const setProbability = `-- name: SetProbability :exec
+UPDATE probabilities 
 SET probability = ?
 WHERE id = ?
 `
 
-type SetTransitionProbabilityParams struct {
+type SetProbabilityParams struct {
 	Probability float64
 	ID          int64
 }
 
-func (q *Queries) SetTransitionProbability(ctx context.Context, arg SetTransitionProbabilityParams) error {
-	_, err := q.db.ExecContext(ctx, setTransitionProbability, arg.Probability, arg.ID)
+func (q *Queries) SetProbability(ctx context.Context, arg SetProbabilityParams) error {
+	_, err := q.db.ExecContext(ctx, setProbability, arg.Probability, arg.ID)
 	return err
 }

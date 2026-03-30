@@ -30,6 +30,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/not0ff/gorkov/internal"
 	"github.com/not0ff/gorkov/internal/database"
 	"github.com/not0ff/gorkov/internal/model"
 )
@@ -56,7 +57,7 @@ func updateModel(filepath string, model model.MarkovModel) error {
 
 	lines := make([]string, 0)
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		lines = append(lines, internal.CleanString(scanner.Text()))
 	}
 	ctx := context.Background()
 	t := time.Now()
@@ -116,8 +117,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	markov := model.NewDBModel(db)
+	markov := model.NewDBModel(db, "0")
 
+	t := time.Now()
 	if len(*sourceFile) != 0 {
 		if err := updateModel(*sourceFile, markov); err != nil {
 			log.Fatal(err)
@@ -143,8 +145,9 @@ func main() {
 			return nil
 		})
 	}
+	log.Printf("Updating model took: %s\n", time.Since(t).String())
 
-	t := time.Now()
+	t = time.Now()
 	if err := markov.CalcAllProbabilities(ctx); err != nil {
 		log.Fatal(err)
 	}
