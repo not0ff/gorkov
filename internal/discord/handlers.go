@@ -17,19 +17,23 @@
 package discord
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
+	"log"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/not0ff/gorkov/internal/model"
 )
 
 type Handler struct {
-	s *Session
+	db *sql.DB
 }
 
-func NewHandler(s *Session) *Handler {
-	return &Handler{s: s}
+func NewHandler(db *sql.DB) *Handler {
+	return &Handler{db: db}
 }
 
 func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -37,29 +41,34 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 		return
 	}
 
+	markov := model.NewDBModel(h.db)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
 	if str, ok := strings.CutPrefix(m.Content, "!learn"); ok {
-		strs := strings.Split(str, "\n")
-		words := make([]string, 0)
-		for i, str := range strs {
-			str = model.ClearString(str)
-			strs[i] = str
-			words = append(words, strings.Fields(str)...)
+		str = model.ClearString(str)
+		words := strings.Fields(str)
+
+		if err := markov.AddTransitions([]string{str}, ctx); err != nil {
+			log.Printf("Error adding transitions for %q: %s\n", str, err)
+		}
+		if err := markov.CalcProbabilitiesForWords(words, ctx); err != nil {
+			log.Printf("Error calculating probabilities for words %q: %s\n", words, err)
+
 		}
 
-		h.s.mu.Lock()
-		h.s.Model.AddTransitions(strs)
-		h.s.Model.CalcProbabilitiesForWords(words)
-		h.s.mu.Unlock()
 	} else if str, ok := strings.CutPrefix(m.Content, "!say"); ok {
 		word := strings.Fields(str)[0]
-
-		h.s.mu.Lock()
-		sentence, err := h.s.Model.GenerateSentence(model.ClearString(word))
-		h.s.mu.Unlock()
+		word = model.ClearString(word)
 
 		var resp string
-		if err != nil {
+		sentence, err := markov.GenerateSentence(word, ctx)
+		if err == model.EmptyOutputErr {
 			resp = "don't know this one!"
+		} else if err != nil {
+			log.Printf("Error generating sentence from word %q: %s\n", word, err)
+			resp = "i encountered a problem.."
 		} else {
 			resp = fmt.Sprintf("%s? %s", word, sentence)
 		}
