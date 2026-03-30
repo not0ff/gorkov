@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strings"
-	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 
@@ -41,7 +40,8 @@ type MarkovModel interface {
 	// Recalculate probabilities for all words saved in the model
 	CalcAllProbabilities(ctx context.Context) error
 
-	// Returns a sentence combining start word and generated rest
+	// Returns a sentence combining start word and generated rest.
+	// Returns [EmptyOutputErr] if no transition for start word was found
 	GenerateSentence(start string, ctx context.Context) (string, error)
 }
 
@@ -140,7 +140,6 @@ func (m *DBModel) CalcProbabilitiesForWords(words []string, ctx context.Context)
 }
 
 func (m *DBModel) CalcAllProbabilities(ctx context.Context) error {
-	time.Sleep(time.Second * 10)
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
