@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"context"
 	_ "embed"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -33,7 +34,7 @@ import (
 	"github.com/not0ff/gorkov/internal/model"
 )
 
-func updateModel(filepath string, model *model.DBModel) error {
+func updateModel(filepath string, model model.MarkovModel) error {
 	file, err := os.Open(filepath)
 	if err != nil {
 		return err
@@ -57,8 +58,9 @@ func updateModel(filepath string, model *model.DBModel) error {
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
+	ctx := context.Background()
 	t := time.Now()
-	if err := model.AddTransitions(lines); err != nil {
+	if err := model.AddTransitions(lines, ctx); err != nil {
 		return err
 	}
 	log.Printf("Creating transitions from file took: %s\n", time.Since(t).String())
@@ -66,10 +68,22 @@ func updateModel(filepath string, model *model.DBModel) error {
 	return nil
 }
 
+func ensureFilepath(p string) error {
+	if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(filepath.Dir(p), os.ModePerm); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
 var (
 	sourceFile = flag.String("fromFile", "", "Text file to create the transition matrix from")
 	sourceDir  = flag.String("fromDir", "", "Directory with text files for creating transition matrix")
 	initWord   = flag.String("initWord", "", "First word to strat the generation from")
+	dbPath     = flag.String("db", "db/db.sqlite", "Path to db file (will be created if doesnt exist)")
 )
 
 //go:embed schema.sql
@@ -88,20 +102,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := ensureFilepath(*dbPath); err != nil {
+		log.Fatal(err)
+	}
+
 	ctx := context.Background()
 	db, err := database.Open(ctx, &database.DbConfig{
 		DriverName: "sqlite3",
-		Dsn:        "file:db/db.sqlite",
+		Dsn:        "file:" + *dbPath,
 		Schema:     Schema,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	model := model.NewDBModel(ctx, db)
+	markov := model.NewDBModel(db)
 
 	if len(*sourceFile) != 0 {
-		if err := updateModel(*sourceFile, model); err != nil {
+		if err := updateModel(*sourceFile, markov); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -117,7 +135,7 @@ func main() {
 			}
 			if d.Type().IsRegular() {
 				log.Printf("%d/%d", i, fileCount)
-				if err := updateModel(path, model); err != nil {
+				if err := updateModel(path, markov); err != nil {
 					log.Fatal(err)
 				}
 				i++
@@ -127,14 +145,16 @@ func main() {
 	}
 
 	t := time.Now()
-	if err := model.CalcAllProbabilities(); err != nil {
+	if err := markov.CalcAllProbabilities(ctx); err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("Updating model probabilities took: %s\n", time.Since(t).String())
 
 	t = time.Now()
-	sentence, err := model.GenerateSentence(*initWord)
-	if err != nil {
+	sentence, err := markov.GenerateSentence(*initWord, ctx)
+	if err == model.EmptyOutputErr {
+		log.Fatalf("No transitions for word: %s found\n", *initWord)
+	} else if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("Generating sentence took: %s\n", time.Since(t).String())
