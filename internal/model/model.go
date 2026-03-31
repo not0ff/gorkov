@@ -22,13 +22,12 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
-	"log"
 	"math/rand/v2"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/not0ff/gorkov/internal/repo"
+	"github.com/not0ff/gorkov/internal/queries"
 )
 
 type MarkovModel interface {
@@ -49,16 +48,16 @@ type MarkovModel interface {
 
 var EmptyOutputErr = errors.New("no associated transition states found for starting word")
 
-const EndOfOutput = "<END>"
+const EOS = "<END>"
 
 type DBModel struct {
 	db      *sql.DB
-	queries *repo.Queries
+	queries *queries.Queries
 	guildID string
 }
 
 func NewDBModel(db *sql.DB, guildID string) MarkovModel {
-	queries := repo.New(db)
+	queries := queries.New(db)
 	dbModel := DBModel{
 		db: db, queries: queries, guildID: guildID,
 	}
@@ -76,7 +75,7 @@ func (m *DBModel) AddTransitions(strs []string, ctx context.Context) error {
 
 	for _, s := range strs {
 		seq := strings.Fields(s)
-		seq = append(seq, EndOfOutput)
+		seq = append(seq, EOS)
 
 		next := IterNgram(seq, 2)
 		for {
@@ -94,7 +93,7 @@ func (m *DBModel) AddTransitions(strs []string, ctx context.Context) error {
 				return fmt.Errorf("error creating second word: %w", err)
 			}
 
-			trans_id, err := qtx.CreateTransition(ctx, repo.CreateTransitionParams{
+			trans_id, err := qtx.CreateTransition(ctx, queries.CreateTransitionParams{
 				WordID: wordId,
 				NextID: nextId,
 			})
@@ -102,7 +101,7 @@ func (m *DBModel) AddTransitions(strs []string, ctx context.Context) error {
 				return fmt.Errorf("error creating transition: %w", err)
 			}
 
-			if err := qtx.IncrementTransitionCount(ctx, repo.IncrementTransitionCountParams{
+			if err := qtx.IncrementTransitionCount(ctx, queries.IncrementTransitionCountParams{
 				GuildID:      m.guildID,
 				TransitionID: trans_id,
 			}); err != nil {
@@ -128,7 +127,7 @@ func (m *DBModel) CalcProbabilitiesForWords(words []string, ctx context.Context)
 			return fmt.Errorf("error getting id for word \"%s\": %w", w, err)
 		}
 
-		probs, err := qtx.GetProbablities(ctx, repo.GetProbablitiesParams{
+		probs, err := qtx.GetProbablities(ctx, queries.GetProbablitiesParams{
 			GuildID: m.guildID,
 			WordID:  id,
 		})
@@ -142,7 +141,7 @@ func (m *DBModel) CalcProbabilitiesForWords(words []string, ctx context.Context)
 		}
 
 		for _, p := range probs {
-			if err = qtx.SetProbability(ctx, repo.SetProbabilityParams{
+			if err = qtx.SetProbability(ctx, queries.SetProbabilityParams{
 				ID:          p.ID,
 				Probability: float64(p.Count) / float64(count),
 			}); err != nil {
@@ -167,7 +166,7 @@ func (m *DBModel) CalcAllProbabilities(ctx context.Context) error {
 	}
 
 	for _, w := range words {
-		probs, err := qtx.GetProbablities(ctx, repo.GetProbablitiesParams{
+		probs, err := qtx.GetProbablities(ctx, queries.GetProbablitiesParams{
 			GuildID: m.guildID,
 			WordID:  w.ID,
 		})
@@ -182,7 +181,7 @@ func (m *DBModel) CalcAllProbabilities(ctx context.Context) error {
 		}
 
 		for _, p := range probs {
-			if err = qtx.SetProbability(ctx, repo.SetProbabilityParams{
+			if err = qtx.SetProbability(ctx, queries.SetProbabilityParams{
 				ID:          p.ID,
 				Probability: float64(p.Count) / float64(count),
 			}); err != nil {
@@ -200,21 +199,18 @@ func (m *DBModel) nextWord(word string, ctx context.Context) (string, error) {
 		return "", fmt.Errorf("error getting id for word \"%s\": %w", word, err)
 	}
 
-	probs, err := m.queries.GetProbablities(ctx, repo.GetProbablitiesParams{
+	probs, err := m.queries.GetProbablities(ctx, queries.GetProbablitiesParams{
 		GuildID: m.guildID,
 		WordID:  id,
 	})
-	if err == sql.ErrNoRows || len(probs) == 0 {
+	if errors.Is(err, sql.ErrNoRows) || len(probs) == 0 {
 		return "", sql.ErrNoRows
 	} else if err != nil {
 		return "", fmt.Errorf("error getting probabilities for wordId %d and guildId %s: %w", id, m.guildID, err)
 	}
-	log.Printf("%#v\n", probs)
-
 	r := rand.Float64()
 	var prob float64
 	for _, p := range probs {
-		log.Printf("%#v\n", p)
 		prob += p.Probability
 		if r <= prob {
 			next, err := m.queries.GetWord(ctx, p.NextID)
@@ -244,7 +240,7 @@ func (m *DBModel) GenerateSentence(start string, ctx context.Context) (string, e
 			return "", err
 		}
 
-		if next == EndOfOutput {
+		if next == EOS {
 			break
 		}
 		word = next

@@ -2,7 +2,7 @@
 // versions:
 //   sqlc v1.30.0
 
-package repo
+package queries
 
 type Probability struct {
 	ID           int64

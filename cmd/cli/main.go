@@ -27,7 +27,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/not0ff/gorkov/internal"
@@ -42,18 +41,7 @@ func updateModel(filepath string, model model.MarkovModel) error {
 	}
 
 	scanner := bufio.NewScanner(file)
-	scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-		delims := []byte{'.', '?', '!', ';'}
-		for i := range data {
-			if slices.Contains(delims, data[i]) {
-				return i + 1, append([]byte(nil), data[:i+1]...), nil
-			}
-		}
-		if atEOF && len(data) > 0 {
-			return len(data), append([]byte(nil), data...), nil
-		}
-		return 0, nil, nil
-	})
+	scanner.Split(internal.ScanSentences)
 
 	lines := make([]string, 0)
 	for scanner.Scan() {
@@ -108,11 +96,7 @@ func main() {
 	}
 
 	ctx := context.Background()
-	db, err := database.Open(ctx, &database.DbConfig{
-		DriverName: "sqlite3",
-		Dsn:        "file:" + *dbPath,
-		Schema:     Schema,
-	})
+	db, err := database.Open(ctx, database.NewDbConfig(*dbPath, Schema))
 	if err != nil {
 		log.Fatal(err)
 	}

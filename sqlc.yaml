@@ -5,6 +5,6 @@ sql:
     schema: "schema.sql"
     gen:
       go:
-        package: "repo"
-        out: "internal/repo"
+        package: "queries"
+        out: "internal/queries"
 

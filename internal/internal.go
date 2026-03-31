@@ -18,14 +18,16 @@ package internal
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 )
 
 var (
-	regMention  = regexp.MustCompile(`/\<\@!?[0-9]{19}\>/g`)
-	regUrl      = regexp.MustCompile(`https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)`)
-	regEmbedUrl = regexp.MustCompile(`\[.+\]\(https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)\)`)
+	regMention     = regexp.MustCompile(`/\<\@!?[0-9]{19}\>/g`)
+	regUrl         = regexp.MustCompile(`https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)`)
+	regEmbedUrl    = regexp.MustCompile(`\[.+\]\(https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)\)`)
+	sentenceDelims = []byte{'.', '?', '!', ';'}
 )
 
 func CleanString(s string) string {
@@ -40,7 +42,7 @@ func CleanString(s string) string {
 			continue
 		}
 		m := strings.Map(func(r rune) rune {
-			if unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune(".?!", r) {
+			if unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune(".?!:-", r) {
 				return r
 			}
 			return -1
@@ -50,4 +52,16 @@ func CleanString(s string) string {
 		}
 	}
 	return strings.ToLower(strings.Join(words, " "))
+}
+
+func ScanSentences(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	for i := range data {
+		if slices.Contains(sentenceDelims, data[i]) {
+			return i + 1, append([]byte(nil), data[:i+1]...), nil
+		}
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), append([]byte(nil), data...), nil
+	}
+	return 0, nil, nil
 }

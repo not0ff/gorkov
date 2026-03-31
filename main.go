@@ -25,64 +25,36 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"syscall"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/not0ff/gorkov/internal/app"
 	"github.com/not0ff/gorkov/internal/database"
-	"github.com/not0ff/gorkov/internal/discord"
 )
 
 var (
 	//go:embed schema.sql
 	Schema string
-
-	Token  string
 	DbPath = flag.String("db", "db/db.sqlite", "Path to db file (will be created if doesnt exist)")
 )
 
-func init() {
-	Token = os.Getenv("TOKEN")
-	if len(Token) == 0 {
-		log.Fatalln("discord token missing in env")
-	}
-
+func main() {
 	flag.Parse()
 	if err := ensureFilepath(*DbPath); err != nil {
 		log.Fatal(err)
 	}
-}
+	config := database.NewDbConfig(*DbPath, Schema)
 
-func main() {
-	bot, err := discordgo.New("Bot " + Token)
-	if err != nil {
-		log.Fatal(err)
+	token, ok := os.LookupEnv("TOKEN")
+	if !ok {
+		log.Fatalln("discord token missing in env")
 	}
 
-	ctx := context.Background()
-	db, err := database.Open(ctx, &database.DbConfig{
-		DriverName: "sqlite3",
-		Dsn:        "file:" + *DbPath,
-		Schema:     Schema,
-	})
-	if err != nil {
-		log.Fatal(err)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	app := app.NewApp(token, config)
+	if err := app.Start(ctx); err != nil {
+		log.Fatalf("error starting app: %s", err)
 	}
-
-	h := discord.NewHandler(db)
-	bot.AddHandler(h.MessageCreate)
-
-	bot.Identify.Intents = discordgo.IntentsGuildMessages
-
-	if err := bot.Open(); err != nil {
-		log.Fatal(err)
-	}
-	defer bot.Close()
-	log.Println("Bot is running")
-
-	exit := make(chan os.Signal, 1)
-	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	log.Println("Press Ctrl+C to exit")
-	<-exit
 }
 
 func ensureFilepath(p string) error {

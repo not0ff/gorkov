@@ -14,39 +14,52 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package database
+package app
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
-	"net/url"
+	"log"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/bwmarrin/discordgo"
+	"github.com/not0ff/gorkov/internal/database"
+	"github.com/not0ff/gorkov/internal/handlers"
 )
 
-type DbConfig struct {
-	Path   string
-	Schema string
+type App struct {
+	Token    string
+	DbConfig *database.DbConfig
 }
 
-func (c *DbConfig) Dsn() string {
-	return fmt.Sprintf("file:%s?_fk=true&_journal=WAL&_sync=1", url.QueryEscape(c.Path))
+func NewApp(token string, config *database.DbConfig) *App {
+	return &App{Token: token, DbConfig: config}
 }
 
-func NewDbConfig(path string, schema string) *DbConfig {
-	return &DbConfig{Path: path, Schema: schema}
-}
-
-func Open(ctx context.Context, config *DbConfig) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", config.Dsn())
+func (a *App) Start(ctx context.Context) error {
+	c, err := discordgo.New("Bot " + a.Token)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	if _, err := db.ExecContext(ctx, config.Schema); err != nil {
-		return nil, err
+	db, err := database.Open(ctx, a.DbConfig)
+	if err != nil {
+		return err
 	}
 
-	return db, nil
+	h := handlers.NewHandler(db)
+	c.AddHandler(h.MessageCreate)
+
+	c.Identify.Intents = discordgo.IntentsGuildMessages
+
+	if err := c.Open(); err != nil {
+		return err
+	}
+	defer c.Close()
+	log.Println("Bot is running")
+
+	<-ctx.Done()
+	if _, err := db.Exec("PRAGMA optimize;"); err != nil {
+		return err
+	}
+
+	return nil
 }
