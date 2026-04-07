@@ -20,7 +20,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -30,11 +30,12 @@ import (
 )
 
 type Handler struct {
-	db *sql.DB
+	logger *slog.Logger
+	db     *sql.DB
 }
 
-func NewHandler(db *sql.DB) *Handler {
-	return &Handler{db: db}
+func NewHandler(logger *slog.Logger, db *sql.DB) *Handler {
+	return &Handler{logger: logger, db: db}
 }
 
 func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -42,11 +43,7 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 		return
 	}
 
-	log.Printf("> %q\n", m.Content)
-	log.Printf("==> GuildID: %s\n", m.GuildID)
-
 	markov := model.NewDBModel(h.db, m.GuildID)
-
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
@@ -60,71 +57,31 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 		var resp string
 		sentence, err := markov.GenerateSentence(word, ctx)
 		if err == model.EmptyOutputErr {
+			h.logger.Debug(fmt.Sprintf("empty output for word %q", word), slog.String("guildId", m.GuildID))
 			resp = "don't know this one!"
 		} else if err != nil {
-			log.Printf("Error generating sentence from word %q: %s\n", word, err)
+			h.logger.Error(fmt.Sprintf("error generating sentence from word %q", word), slog.Any("error", err), slog.String("guildId", m.GuildID))
 			resp = "i encountered a problem.."
 		} else {
+			h.logger.Debug(fmt.Sprintf("generated %q from word %q", sentence, word), slog.String("guildID", m.GuildID))
 			resp = fmt.Sprintf("%s? %s", word, sentence)
 		}
 
 		if _, err := s.ChannelMessageSend(m.ChannelID, resp); err != nil {
-			log.Printf("Error sending message: %s\n", err)
+			h.logger.Error("error sending generated response", slog.Any("error", err), slog.String("guildId", m.GuildID))
 		}
 		return
 	}
 
 	str := internal.CleanString(m.Content)
 	if err := markov.AddTransitions([]string{str}, ctx); err != nil {
-		log.Printf("Error adding transitions for %q: %s\n", str, err)
+		h.logger.Error(fmt.Sprintf("error adding transitions for %q", str), slog.Any("error", err), slog.String("guildId", m.GuildID))
 		return
 	}
 
 	words := strings.Fields(str)
 	if err := markov.CalcProbabilitiesForWords(words, ctx); err != nil {
-		log.Printf("Error calculating probabilities for words %q: %s\n", words, err)
+		h.logger.Error(fmt.Sprintf("error calculating probabilities for words %q", words), slog.Any("error", err), slog.String("guildId", m.GuildID))
 		return
 	}
-
-	// if str, ok := strings.CutPrefix(m.Content, "!learn"); ok {
-	// 	str = internal.CleanString(str)
-	// 	words := strings.Fields(str)
-
-	// 	if err := markov.AddTransitions([]string{str}, ctx); err != nil {
-	// 		log.Printf("Error adding transitions for %q: %s\n", str, err)
-	// 	}
-	// 	if err := markov.CalcProbabilitiesForWords(words, ctx); err != nil {
-	// 		log.Printf("Error calculating probabilities for words %q: %s\n", words, err)
-
-	// 	}
-
-	// } else if str, ok := strings.CutPrefix(m.Content, "!say"); ok {
-	// 	seq := strings.Fields(str)
-	// 	if len(seq) == 0 {
-	// 		return
-	// 	}
-	// 	word := internal.CleanString(seq[0])
-
-	// 	var resp string
-	// 	sentence, err := markov.GenerateSentence(word, ctx)
-	// 	if err == model.EmptyOutputErr {
-	// 		resp = "don't know this one!"
-	// 	} else if err != nil {
-	// 		log.Printf("Error generating sentence from word %q: %s\n", word, err)
-	// 		resp = "i encountered a problem.."
-	// 	} else {
-	// 		resp = fmt.Sprintf("%s? %s", word, sentence)
-	// 	}
-
-	// 	s.ChannelMessageSend(m.ChannelID, resp)
-	// } else if str, ok := strings.CutPrefix(m.Content, "!user"); ok {
-	// 	id := strings.TrimSuffix(strings.TrimPrefix(str, " <@"), ">")
-	// 	user, err := s.User(id)
-	// 	if err != nil {
-	// 		log.Print(err)
-	// 		return
-	// 	}
-
-	// 	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("global name: \"%s\" username:\"%s\" tag:%s\n", user.GlobalName, user.Username, str))
-	// }
 }

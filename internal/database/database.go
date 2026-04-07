@@ -26,16 +26,16 @@ import (
 )
 
 type DbConfig struct {
-	Path   string
-	Schema string
+	path   string
+	schema string
 }
 
 func (c *DbConfig) Dsn() string {
-	return fmt.Sprintf("file:%s?_fk=true&_journal=WAL&_sync=1", url.QueryEscape(c.Path))
+	return fmt.Sprintf("file:%s?_fk=true&_journal=WAL&_sync=1", url.QueryEscape(c.path))
 }
 
 func NewDbConfig(path string, schema string) *DbConfig {
-	return &DbConfig{Path: path, Schema: schema}
+	return &DbConfig{path: path, schema: schema}
 }
 
 func Open(ctx context.Context, config *DbConfig) (*sql.DB, error) {
@@ -44,7 +44,7 @@ func Open(ctx context.Context, config *DbConfig) (*sql.DB, error) {
 		return nil, err
 	}
 
-	if _, err := db.ExecContext(ctx, config.Schema); err != nil {
+	if _, err := db.ExecContext(ctx, config.schema); err != nil {
 		return nil, err
 	}
 

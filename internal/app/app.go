@@ -18,7 +18,7 @@ package app
 
 import (
 	"context"
-	"log"
+	"log/slog"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/not0ff/gorkov/internal/database"
@@ -26,26 +26,27 @@ import (
 )
 
 type App struct {
-	Token    string
-	DbConfig *database.DbConfig
+	token    string
+	logger   *slog.Logger
+	dbConfig *database.DbConfig
 }
 
-func NewApp(token string, config *database.DbConfig) *App {
-	return &App{Token: token, DbConfig: config}
+func NewApp(token string, logger *slog.Logger, config *database.DbConfig) *App {
+	return &App{token: token, logger: logger, dbConfig: config}
 }
 
 func (a *App) Start(ctx context.Context) error {
-	c, err := discordgo.New("Bot " + a.Token)
+	c, err := discordgo.New("Bot " + a.token)
 	if err != nil {
 		return err
 	}
 
-	db, err := database.Open(ctx, a.DbConfig)
+	db, err := database.Open(ctx, a.dbConfig)
 	if err != nil {
 		return err
 	}
 
-	h := handlers.NewHandler(db)
+	h := handlers.NewHandler(a.logger, db)
 	c.AddHandler(h.MessageCreate)
 
 	c.Identify.Intents = discordgo.IntentsGuildMessages
@@ -54,9 +55,10 @@ func (a *App) Start(ctx context.Context) error {
 		return err
 	}
 	defer c.Close()
-	log.Println("Bot is running")
+	a.logger.Info("client is running")
 
 	<-ctx.Done()
+	a.logger.Info("closing client...")
 	if _, err := db.Exec("PRAGMA optimize;"); err != nil {
 		return err
 	}
