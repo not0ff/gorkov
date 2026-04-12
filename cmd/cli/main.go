@@ -49,7 +49,7 @@ func updateModel(filepath string, model model.MarkovModel) error {
 	}
 	ctx := context.Background()
 	t := time.Now()
-	if err := model.AddTransitions(lines, ctx); err != nil {
+	if _, err := model.AddTransitions(lines, ctx); err != nil {
 		return err
 	}
 	log.Printf("Creating transitions from file took: %s\n", time.Since(t).String())
@@ -139,7 +139,7 @@ func main() {
 
 	t = time.Now()
 	sentence, err := markov.GenerateSentence(*initWord, ctx)
-	if err == model.EmptyOutputErr {
+	if err == model.UnknownWordErr {
 		log.Fatalf("No transitions for word: %s found\n", *initWord)
 	} else if err != nil {
 		log.Fatal(err)

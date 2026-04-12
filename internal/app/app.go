@@ -18,7 +18,10 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"runtime"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/not0ff/gorkov/internal/database"
@@ -29,13 +32,35 @@ type App struct {
 	token    string
 	logger   *slog.Logger
 	dbConfig *database.DbConfig
+	guildIDs []string
 }
 
-func NewApp(token string, logger *slog.Logger, config *database.DbConfig) *App {
-	return &App{token: token, logger: logger, dbConfig: config}
+func NewApp(token string, logger *slog.Logger, config *database.DbConfig, guildIDs []string) *App {
+	return &App{token: token, logger: logger, dbConfig: config, guildIDs: guildIDs}
+}
+
+func (a *App) setDiscordLogger() {
+	logger := a.logger
+	discordgo.Logger = func(msgL, caller int, format string, a ...any) {
+		// Formatting taken from:
+		// https://github.com/bwmarrin/discordgo/blob/v0.29.0/logging.go
+		pc, file, line, _ := runtime.Caller(caller)
+
+		files := strings.Split(file, "/")
+		file = files[len(files)-1]
+
+		name := runtime.FuncForPC(pc).Name()
+		fns := strings.Split(name, ".")
+		name = fns[len(fns)-1]
+
+		msg := fmt.Sprintf(format, a...)
+		logger.Info(fmt.Sprintf("[DG%d] %s:%d:%s() %s\n", msgL, file, line, name, msg))
+	}
 }
 
 func (a *App) Start(ctx context.Context) error {
+	a.setDiscordLogger()
+
 	c, err := discordgo.New("Bot " + a.token)
 	if err != nil {
 		return err
@@ -46,7 +71,8 @@ func (a *App) Start(ctx context.Context) error {
 		return err
 	}
 
-	h := handlers.NewHandler(a.logger, db)
+	h := handlers.NewHandler(a.logger, db, a.guildIDs)
+	c.AddHandler(h.HandleInteraction)
 	c.AddHandler(h.MessageCreate)
 
 	c.Identify.Intents = discordgo.IntentsGuildMessages
@@ -55,10 +81,21 @@ func (a *App) Start(ctx context.Context) error {
 		return err
 	}
 	defer c.Close()
+
+	if err := h.RegisterCommands(c); err != nil {
+		a.logger.Error("error registering commands", slog.Any("error", err))
+		return err
+	}
 	a.logger.Info("client is running")
 
 	<-ctx.Done()
 	a.logger.Info("closing client...")
+
+	if err := h.UnregisterCommands(c); err != nil {
+		a.logger.Error("error unregistering commands", slog.Any("error", err))
+		return err
+	}
+
 	if _, err := db.Exec("PRAGMA optimize;"); err != nil {
 		return err
 	}

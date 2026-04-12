@@ -21,10 +21,12 @@ import (
 	_ "embed"
 	"errors"
 	"flag"
+	"log"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 
 	"github.com/not0ff/gorkov/internal/app"
 	"github.com/not0ff/gorkov/internal/database"
@@ -32,39 +34,51 @@ import (
 
 var (
 	//go:embed schema.sql
-	Schema    string
-	DbPath    = flag.String("db", "db/db.sqlite", "Path to db file (will be created if doesnt exist)")
-	DebugMode = flag.Bool("debug", false, "Enable debug mode for verbose logs")
+	Schema string
+
+	Token    string
+	DbPath   string
+	Debug    bool
+	GuildIDs []string
 )
 
-func main() {
+func init() {
+	var idstr string
+	flag.StringVar(&DbPath, "db", "db/db.sqlite", "Path to db file (will be created if doesnt exist)")
+	flag.BoolVar(&Debug, "debug", false, "Enable debug mode for verbose logs")
+	flag.StringVar(&idstr, "guildIDs", "", "List of comma-separated guild ids for registering slash commands")
 	flag.Parse()
-	logger := setupLogger()
 
-	if err := ensureFilepath(*DbPath); err != nil {
-		logger.Error("error ensuring path to db exists", slog.Any("error", err))
-		return
+	if idstr == "" {
+		log.Fatal("missing guild ids")
 	}
-	config := database.NewDbConfig(*DbPath, Schema)
+	GuildIDs = strings.Split(idstr, ",")
 
-	token, ok := os.LookupEnv("TOKEN")
-	if !ok {
-		logger.Error("auth token missing in env")
-		return
+	Token = os.Getenv("TOKEN")
+	if Token == "" {
+		log.Fatal("auth token missing in env")
 	}
+}
+
+func main() {
+	if err := ensureFilepath(DbPath); err != nil {
+		log.Fatal("error ensuring path to db exists", slog.Any("error", err))
+	}
+	config := database.NewDbConfig(DbPath, Schema)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	app := app.NewApp(token, logger, config)
+	logger := setupLogger()
+	app := app.NewApp(Token, logger, config, GuildIDs)
 	if err := app.Start(ctx); err != nil {
-		logger.Error("error running bot client", slog.Any("error", err))
+		log.Fatalf("error running bot client: %s", err)
 	}
 }
 
 func setupLogger() *slog.Logger {
 	level := &slog.LevelVar{}
-	if *DebugMode {
+	if Debug {
 		level.Set(slog.LevelDebug)
 	}
 

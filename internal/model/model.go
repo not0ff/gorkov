@@ -32,8 +32,9 @@ import (
 
 type MarkovModel interface {
 	// Add word transitions from each string to the model.
+	// Returns list of added words.
 	// This function does not preprocess strings but only splits them on whitespace
-	AddTransitions(strs []string, ctx context.Context) error
+	AddTransitions(strs []string, ctx context.Context) ([]string, error)
 
 	// Recalculate next word probabilities for passed words
 	CalcProbabilitiesForWords(words []string, ctx context.Context) error
@@ -42,13 +43,23 @@ type MarkovModel interface {
 	CalcAllProbabilities(ctx context.Context) error
 
 	// Returns a sentence combining start word and generated rest.
-	// Returns [EmptyOutputErr] if no transition for start word was found
+	// For empty start word generates from Beggining-Of-Sentence token.
+	// Returns [UnknownWordErr] if no transitions for start word were found
 	GenerateSentence(start string, ctx context.Context) (string, error)
 }
 
-var EmptyOutputErr = errors.New("no associated transition states found for starting word")
+var (
+	// Error returned when in generated sentence start word has no transitions.
+	UnknownWordErr = errors.New("no transitions found for starting word")
 
-const EOS = "<END>"
+	// Error returned when non-EOS token has no transitions.
+	MissingTransitionsErr = errors.New("transitions for known word missing")
+)
+
+const (
+	EOS = "<END>"
+	BOS = "<START>"
+)
 
 type DBModel struct {
 	db      *sql.DB
@@ -65,32 +76,45 @@ func NewDBModel(db *sql.DB, guildID string) MarkovModel {
 	return &dbModel
 }
 
-func (m *DBModel) AddTransitions(strs []string, ctx context.Context) error {
+func (m *DBModel) AddTransitions(strs []string, ctx context.Context) ([]string, error) {
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback()
 	qtx := m.queries.WithTx(tx)
 
+	wordIds := map[string]int64{}
+	getWordId := func(word string) (int64, error) {
+		if id, ok := wordIds[word]; ok {
+			return id, nil
+		}
+		id, err := qtx.CreateWord(ctx, word)
+		if err != nil {
+			return 0, err
+		}
+		wordIds[word] = id
+		return id, nil
+	}
+
+	words := []string{}
 	for _, s := range strs {
-		seq := strings.Fields(s)
+		seq := make([]string, 0, 2+len(strings.Fields(s)))
+		seq = append(seq, BOS)
+		seq = append(seq, strings.Fields(s)...)
 		seq = append(seq, EOS)
 
-		next := IterNgram(seq, 2)
-		for {
-			ngram := next()
-			if ngram == nil {
-				break
-			}
-			wordId, err := qtx.CreateWord(ctx, ngram[0])
+		words = append(words, seq...)
+
+		for _, p := range Ngram(seq, 2) {
+			wordId, err := getWordId(p[0])
 			if err != nil {
-				return fmt.Errorf("error creating first word: %w", err)
+				return nil, fmt.Errorf("error creating first word: %w", err)
 			}
 
-			nextId, err := qtx.CreateWord(ctx, ngram[1])
+			nextId, err := getWordId(p[1])
 			if err != nil {
-				return fmt.Errorf("error creating second word: %w", err)
+				return nil, fmt.Errorf("error creating second word: %w", err)
 			}
 
 			trans_id, err := qtx.CreateTransition(ctx, queries.CreateTransitionParams{
@@ -98,18 +122,21 @@ func (m *DBModel) AddTransitions(strs []string, ctx context.Context) error {
 				NextID: nextId,
 			})
 			if err != nil {
-				return fmt.Errorf("error creating transition: %w", err)
+				return nil, fmt.Errorf("error creating transition: %w", err)
 			}
 
 			if err := qtx.IncrementTransitionCount(ctx, queries.IncrementTransitionCountParams{
 				GuildID:      m.guildID,
 				TransitionID: trans_id,
 			}); err != nil {
-				return fmt.Errorf("error incrementing transition count: %w", err)
+				return nil, fmt.Errorf("error incrementing transition count: %w", err)
 			}
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return words, nil
 }
 
 // Expects a word from an already added transition
@@ -229,13 +256,23 @@ func (m *DBModel) nextWord(word string, ctx context.Context) (string, error) {
 }
 
 func (m *DBModel) GenerateSentence(start string, ctx context.Context) (string, error) {
-	sentence := make([]string, 0)
 	word := start
-	for {
+	if start == "" {
+		word = BOS
+	}
+
+	if _, err := m.nextWord(word, ctx); errors.Is(err, sql.ErrNoRows) {
+		return "", UnknownWordErr
+	}
+
+	sentence := []string{}
+	if word != BOS {
 		sentence = append(sentence, word)
+	}
+	for {
 		next, err := m.nextWord(word, ctx)
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", EmptyOutputErr
+			return "", MissingTransitionsErr
 		} else if err != nil {
 			return "", err
 		}
@@ -243,25 +280,10 @@ func (m *DBModel) GenerateSentence(start string, ctx context.Context) (string, e
 		if next == EOS {
 			break
 		}
+		sentence = append(sentence, next)
 		word = next
 	}
 	return strings.Join(sentence, " "), nil
-}
-
-func IterNgram(seq []string, n int) func() []string {
-	i := 0
-	return func() []string {
-		if i+n-1 >= len(seq) {
-			return nil
-		}
-		sl := make([]string, 0, n)
-		for off := range n {
-			sl = append(sl, seq[i+off])
-		}
-
-		i++
-		return sl
-	}
 }
 
 func Ngram(seq []string, n int) [][]string {
