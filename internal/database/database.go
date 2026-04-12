@@ -34,11 +34,11 @@ func (c *DbConfig) Dsn() string {
 	return fmt.Sprintf("file:%s?_fk=true&_journal=WAL&_sync=1", url.QueryEscape(c.path))
 }
 
-func NewDbConfig(path string, schema string) *DbConfig {
-	return &DbConfig{path: path, schema: schema}
+func NewDbConfig(path string, schema string) DbConfig {
+	return DbConfig{path: path, schema: schema}
 }
 
-func Open(ctx context.Context, config *DbConfig) (*sql.DB, error) {
+func Open(ctx context.Context, config DbConfig) (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", config.Dsn())
 	if err != nil {
 		return nil, err

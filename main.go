@@ -21,6 +21,7 @@ import (
 	_ "embed"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"log/slog"
 	"os"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/not0ff/gorkov/internal/app"
 	"github.com/not0ff/gorkov/internal/database"
+	"github.com/not0ff/gorkov/internal/handler"
 )
 
 var (
@@ -50,13 +52,15 @@ func init() {
 	flag.Parse()
 
 	if idstr == "" {
-		log.Fatal("missing guild ids")
+		fmt.Println("error: missing guild ids")
+		os.Exit(1)
 	}
 	GuildIDs = strings.Split(idstr, ",")
 
 	Token = os.Getenv("TOKEN")
 	if Token == "" {
-		log.Fatal("auth token missing in env")
+		fmt.Println("error: auth token missing in env")
+		os.Exit(1)
 	}
 }
 
@@ -64,13 +68,14 @@ func main() {
 	if err := ensureFilepath(DbPath); err != nil {
 		log.Fatal("error ensuring path to db exists", slog.Any("error", err))
 	}
-	config := database.NewDbConfig(DbPath, Schema)
+	dbConfig := database.NewDbConfig(DbPath, Schema)
+	hConfig := handler.NewConfig(handler.WithGuildIDs(GuildIDs...))
+	logger := setupLogger()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	logger := setupLogger()
-	app := app.NewApp(Token, logger, config, GuildIDs)
+	app := app.NewApp(Token, logger, dbConfig, hConfig)
 	if err := app.Start(ctx); err != nil {
 		log.Fatalf("error running bot client: %s", err)
 	}

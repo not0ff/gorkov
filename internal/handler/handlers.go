@@ -14,7 +14,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package handlers
+package handler
 
 import (
 	"context"
@@ -23,34 +23,28 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/not0ff/gorkov/internal"
 	"github.com/not0ff/gorkov/internal/model"
 )
 
-const (
-	GENERATION_TIMEOUT   time.Duration = time.Second * 10
-	MESSAGE_SEARCH_LIMIT int           = 15
-)
-
-type CommandHandler func(s *discordgo.Session, i *discordgo.Interaction) error
+type CommandHandler func(ctx context.Context, s *discordgo.Session, i *discordgo.Interaction) error
 
 type Handler struct {
 	logger     *slog.Logger
 	db         *sql.DB
-	guildIDs   []string
 	handlers   map[string]CommandHandler
 	registered []*discordgo.ApplicationCommand
+	config     Config
 }
 
-func NewHandler(logger *slog.Logger, db *sql.DB, guildIDs []string) *Handler {
+func NewHandler(logger *slog.Logger, db *sql.DB, config Config) *Handler {
 	h := &Handler{
 		logger:     logger,
 		db:         db,
-		guildIDs:   guildIDs,
 		registered: []*discordgo.ApplicationCommand{},
+		config:     config,
 	}
 
 	h.handlers = map[string]CommandHandler{
@@ -61,11 +55,14 @@ func NewHandler(logger *slog.Logger, db *sql.DB, guildIDs []string) *Handler {
 }
 
 func (h *Handler) RegisterCommands(s *discordgo.Session) error {
+	if h.config.guildIDs == nil {
+		return fmt.Errorf("missing guildIDs for command registration")
+	}
 	for _, c := range commands {
 		if _, ok := h.handlers[c.Name]; !ok {
 			return fmt.Errorf("cannot register command %q without handler", c.Name)
 		}
-		for _, id := range h.guildIDs {
+		for _, id := range h.config.guildIDs {
 			reg, err := s.ApplicationCommandCreate(s.State.User.ID, id, c)
 			if err != nil {
 				return fmt.Errorf("error registering command %q in guild %q: %w", c.Name, id, err)
@@ -92,7 +89,9 @@ func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.Interacti
 
 	name := i.ApplicationCommandData().Name
 	if handler, ok := h.handlers[name]; ok {
-		if err := handler(s, i.Interaction); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), h.config.response_timeout)
+		defer cancel()
+		if err := handler(ctx, s, i.Interaction); err != nil {
 			logger.With("command", name).Error("error handling command", slog.Any("error", err))
 		}
 	} else {
@@ -108,7 +107,7 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 	logger := h.logger.With("guildID", m.GuildID)
 	markov := model.NewDBModel(h.db, m.GuildID)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(context.Background(), h.config.response_timeout)
 	defer cancel()
 
 	str := internal.CleanString(m.Content)
@@ -122,7 +121,7 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 	}
 }
 
-func (h *Handler) handleSay(s *discordgo.Session, i *discordgo.Interaction) error {
+func (h *Handler) handleSay(ctx context.Context, s *discordgo.Session, i *discordgo.Interaction) error {
 	if err := s.InteractionRespond(i, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	}); err != nil {
@@ -134,7 +133,7 @@ func (h *Handler) handleSay(s *discordgo.Session, i *discordgo.Interaction) erro
 		word = opt.StringValue()
 	}
 
-	if r, err := h.generateWithErrFollowup(word, s, i); err == nil {
+	if r, err := h.generateWithErrFollowup(ctx, word, s, i); err == nil {
 		if _, err := s.FollowupMessageCreate(i, false, &discordgo.WebhookParams{Content: r}); err != nil {
 			return fmt.Errorf("error responding to command interaction: %w", err)
 		}
@@ -144,7 +143,7 @@ func (h *Handler) handleSay(s *discordgo.Session, i *discordgo.Interaction) erro
 	return nil
 }
 
-func (h *Handler) handleReply(s *discordgo.Session, i *discordgo.Interaction) error {
+func (h *Handler) handleReply(ctx context.Context, s *discordgo.Session, i *discordgo.Interaction) error {
 	if err := s.InteractionRespond(i, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
@@ -156,32 +155,19 @@ func (h *Handler) handleReply(s *discordgo.Session, i *discordgo.Interaction) er
 	if opt := i.ApplicationCommandData().GetOption("user"); opt != nil {
 		user = opt.UserValue(s)
 	} else {
-		h.sendErrFollowup("Couldn't find user", s, i)
-		return fmt.Errorf("error getting user")
+		err := fmt.Errorf("error getting user")
+		if e := sendFollowup("Couldn't find user", true, true, i, s); e != nil {
+			return fmt.Errorf("error sending followup for error %w: %w", err, e)
+		}
+		return err
 	}
 
-	msgs, err := s.ChannelMessages(i.ChannelID, MESSAGE_SEARCH_LIMIT, "", "", "")
+	msg, err := findUserMessage(user.ID, i.ChannelID, h.config.msg_search_limit, s)
 	if err != nil {
-		e := fmt.Errorf("error fetching messages: %w", err)
-		if err := h.sendErrFollowup("Couldn't search messages", s, i); err != nil {
-			return fmt.Errorf("error sending followup for error %w: %w", e, err)
+		if e := sendFollowup("Couldn't find user's message", true, true, i, s); e != nil {
+			return fmt.Errorf("error sending followup for error %w: %w", err, e)
 		}
-		return e
-	}
-
-	var msg *discordgo.Message
-	for _, m := range msgs {
-		if m.Author.ID == user.ID {
-			msg = m
-			break
-		}
-	}
-	if msg == nil {
-		e := fmt.Errorf("no message by user %s found", user.GlobalName)
-		if err := h.sendErrFollowup("Couldn't find user's message", s, i); err != nil {
-			return fmt.Errorf("error sending followup for error %w: %w", e, err)
-		}
-		return e
+		return err
 	}
 
 	var word string
@@ -190,7 +176,7 @@ func (h *Handler) handleReply(s *discordgo.Session, i *discordgo.Interaction) er
 		word = seq[0]
 	}
 
-	if resp, err := h.generateWithErrFollowup(word, s, i); err == nil {
+	if resp, err := h.generateWithErrFollowup(ctx, word, s, i); err == nil {
 		if err := s.InteractionResponseDelete(i); err != nil {
 			return fmt.Errorf("error removing response: %w", err)
 		}
@@ -204,36 +190,23 @@ func (h *Handler) handleReply(s *discordgo.Session, i *discordgo.Interaction) er
 	return nil
 }
 
-func (h *Handler) sendErrFollowup(msg string, s *discordgo.Session, i *discordgo.Interaction) error {
-	_ = s.InteractionResponseDelete(i)
-	params := &discordgo.WebhookParams{Content: msg, Flags: discordgo.MessageFlagsEphemeral}
-	if _, err := s.FollowupMessageCreate(i, false, params); err != nil {
-		return fmt.Errorf("error sending followup error message: %w", err)
-	}
-	return nil
-}
-
 // Returns error if sentence generation failed and interaction followup was attempted.
-// Timeouts after t seconds
-func (h *Handler) generateWithErrFollowup(word string, s *discordgo.Session, i *discordgo.Interaction) (string, error) {
-	word = internal.CleanString(word)
+func (h *Handler) generateWithErrFollowup(ctx context.Context, start string, s *discordgo.Session, i *discordgo.Interaction) (string, error) {
+	start = internal.CleanString(start)
 	markov := model.NewDBModel(h.db, i.GuildID)
 
-	ctx, cancel := context.WithTimeout(context.Background(), GENERATION_TIMEOUT)
-	defer cancel()
-
-	sentence, err := markov.GenerateSentence(word, ctx)
+	sentence, err := markov.GenerateSentence(start, ctx)
 	if err != nil {
 		msg := "I encountered a problem..."
 		if errors.Is(err, model.UnknownWordErr) {
 			msg = "I haven't seen this word before!"
 		}
-		if e := h.sendErrFollowup(msg, s, i); e != nil {
+		if e := sendFollowup(msg, true, true, i, s); e != nil {
 			return "", fmt.Errorf("error sending followup for error %w: %w", err, e)
 		}
 		return "", err
 	}
-	h.logger.Debug(fmt.Sprintf("generated %q from word %q", sentence, word))
+	h.logger.Debug(fmt.Sprintf("generated %q from word %q", sentence, start))
 	return sentence, nil
 }
 
@@ -252,7 +225,7 @@ var commands = []*discordgo.ApplicationCommand{
 	},
 	{
 		Name:        "reply",
-		Description: fmt.Sprintf("Reply to last message sent by user on this channel. (If found in last %d messages)", MESSAGE_SEARCH_LIMIT),
+		Description: "Reply to last message sent by user on this channel.",
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Type:        discordgo.ApplicationCommandOptionUser,

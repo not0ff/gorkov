@@ -25,21 +25,21 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/not0ff/gorkov/internal/database"
-	"github.com/not0ff/gorkov/internal/handlers"
+	"github.com/not0ff/gorkov/internal/handler"
 )
 
 type App struct {
 	token    string
 	logger   *slog.Logger
-	dbConfig *database.DbConfig
-	guildIDs []string
+	dbConfig database.DbConfig
+	hConfig  handler.Config
 }
 
-func NewApp(token string, logger *slog.Logger, config *database.DbConfig, guildIDs []string) *App {
-	return &App{token: token, logger: logger, dbConfig: config, guildIDs: guildIDs}
+func NewApp(token string, logger *slog.Logger, dbConfig database.DbConfig, hConfig handler.Config) *App {
+	return &App{token: token, logger: logger, dbConfig: dbConfig, hConfig: hConfig}
 }
 
-func (a *App) setDiscordLogger() {
+func (a *App) setDiscordgoLogger() {
 	logger := a.logger
 	discordgo.Logger = func(msgL, caller int, format string, a ...any) {
 		// Formatting taken from:
@@ -59,7 +59,7 @@ func (a *App) setDiscordLogger() {
 }
 
 func (a *App) Start(ctx context.Context) error {
-	a.setDiscordLogger()
+	a.setDiscordgoLogger()
 
 	c, err := discordgo.New("Bot " + a.token)
 	if err != nil {
@@ -71,7 +71,7 @@ func (a *App) Start(ctx context.Context) error {
 		return err
 	}
 
-	h := handlers.NewHandler(a.logger, db, a.guildIDs)
+	h := handler.NewHandler(a.logger, db, a.hConfig)
 	c.AddHandler(h.HandleInteraction)
 	c.AddHandler(h.MessageCreate)
 
