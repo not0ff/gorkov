@@ -69,7 +69,7 @@ func main() {
 		log.Fatal("error ensuring path to db exists", slog.Any("error", err))
 	}
 	dbConfig := database.NewDbConfig(DbPath, Schema)
-	hConfig := handler.NewConfig(handler.WithGuildIDs(GuildIDs...))
+	hConfig := handler.NewConfig(handler.WithGuildIDs(GuildIDs...), handler.WithSearchLimit(1))
 	logger := setupLogger()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

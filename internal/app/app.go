@@ -82,8 +82,8 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	defer c.Close()
 
-	if err := h.RegisterCommands(c); err != nil {
-		a.logger.Error("error registering commands", slog.Any("error", err))
+	if err := h.Init(c); err != nil {
+		a.logger.Error("error initing handler", slog.Any("error", err))
 		return err
 	}
 	a.logger.Info("client is running")
@@ -91,8 +91,8 @@ func (a *App) Start(ctx context.Context) error {
 	<-ctx.Done()
 	a.logger.Info("closing client...")
 
-	if err := h.UnregisterCommands(c); err != nil {
-		a.logger.Error("error unregistering commands", slog.Any("error", err))
+	if err := h.Deinit(c); err != nil {
+		a.logger.Error("error deiniting handler", slog.Any("error", err))
 		return err
 	}
 

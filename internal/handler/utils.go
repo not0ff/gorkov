@@ -36,22 +36,7 @@ func findUserMessage(userID, channelID string, last_limit uint, s *discordgo.Ses
 		}
 	}
 	if msg == nil {
-		return nil, fmt.Errorf("message by user %s not found in last %d messages on channel %s", userID, last_limit, channelID)
+		return nil, fmt.Errorf("message by user not found in last %d messages on channel", last_limit)
 	}
 	return msg, nil
-}
-
-func sendFollowup(msg string, eph, remove_prev bool, i *discordgo.Interaction, s *discordgo.Session) error {
-	var err error
-	if remove_prev {
-		err = s.InteractionResponseDelete(i)
-	}
-
-	params := &discordgo.WebhookParams{Content: msg}
-	if eph {
-		params.Flags = discordgo.MessageFlagsEphemeral
-	}
-
-	_, err = s.FollowupMessageCreate(i, false, params)
-	return err
 }
