@@ -26,20 +26,20 @@ const (
 )
 
 type Config struct {
-	response_timeout time.Duration
-	msg_search_limit uint
-	reply_chance     float32
-	reply_mode       ReplyMode
-	guildIDs         []string
+	responseTimeout time.Duration
+	msgSearchLimit  uint
+	replyChance     float32
+	replyMode       ReplyMode
+	guildIDs        []string
 }
 
 func DefaultConfig() Config {
 	return Config{
-		response_timeout: time.Second * 10,
-		msg_search_limit: 15,
-		reply_chance:     0.1,
-		reply_mode:       FirstWordReplyMode,
-		guildIDs:         nil,
+		responseTimeout: time.Second * 10,
+		msgSearchLimit:  15,
+		replyChance:     0.1,
+		replyMode:       FirstWordReplyMode,
+		guildIDs:        nil,
 	}
 }
 
@@ -47,25 +47,25 @@ type OptionFunc func(*Config)
 
 func WithResponseTimeout(t time.Duration) OptionFunc {
 	return func(c *Config) {
-		c.response_timeout = t
+		c.responseTimeout = t
 	}
 }
 
 func WithSearchLimit(l uint) OptionFunc {
 	return func(c *Config) {
-		c.msg_search_limit = l
+		c.msgSearchLimit = l
 	}
 }
 
 func WithReplyChance(ch float32) OptionFunc {
 	return func(c *Config) {
-		c.reply_chance = ch
+		c.replyChance = ch
 	}
 }
 
 func WithReplyMode(m ReplyMode) OptionFunc {
 	return func(c *Config) {
-		c.reply_mode = m
+		c.replyMode = m
 	}
 }
 

@@ -134,14 +134,14 @@ func (q *Queries) GetWord(ctx context.Context, id int64) (Word, error) {
 	return i, err
 }
 
-const getWordId = `-- name: GetWordId :one
+const getWordID = `-- name: GetWordID :one
 SELECT id FROM words
 WHERE word = ?
 LIMIT 1
 `
 
-func (q *Queries) GetWordId(ctx context.Context, word string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getWordId, word)
+func (q *Queries) GetWordID(ctx context.Context, word string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getWordID, word)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

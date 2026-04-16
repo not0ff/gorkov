@@ -9,7 +9,7 @@ RETURNING id;
 SELECT * FROM words
 WHERE id = ?;
 
--- name: GetWordId :one
+-- name: GetWordID :one
 SELECT id FROM words
 WHERE word = ?
 LIMIT 1;

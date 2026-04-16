@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/not0ff/gorkov/internal"
@@ -56,18 +57,31 @@ type CmdContext struct {
 	i   *discordgo.Interaction
 }
 
+func (cctx *CmdContext) WithContext(ctx context.Context) CmdContext {
+	cctx.ctx = ctx
+	return *cctx
+}
+
+type CmdConfig struct {
+	responseTimeout time.Duration
+	msgSearchLimit  uint
+	replyMode       ReplyMode
+}
+
 type CmdHandler struct {
 	db         *sql.DB
 	logger     *slog.Logger
+	config     CmdConfig
 	commands   []*discordgo.ApplicationCommand
 	registered []*discordgo.ApplicationCommand
 	funcs      map[string]func(CmdContext) error
 }
 
-func NewCmdHandler(logger *slog.Logger, db *sql.DB) *CmdHandler {
+func NewCmdHandler(logger *slog.Logger, db *sql.DB, config CmdConfig) *CmdHandler {
 	h := &CmdHandler{
 		db:         db,
 		logger:     logger,
+		config:     config,
 		commands:   commands,
 		registered: make([]*discordgo.ApplicationCommand, 0, len(commands)),
 	}
@@ -105,16 +119,21 @@ func (h *CmdHandler) Unregister(s *discordgo.Session) error {
 	return nil
 }
 
-func (h *CmdHandler) HandleCommand(name string, ctx CmdContext) error {
+func (h *CmdHandler) HandleCommand(name string, cctx CmdContext) error {
 	handler, ok := h.funcs[name]
 	if !ok {
 		return fmt.Errorf("unknown command %q received", name)
 	}
-	if err := handler(ctx); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), h.config.responseTimeout)
+	defer cancel()
+
+	cctx = cctx.WithContext(ctx)
+
+	if err := handler(cctx); err != nil {
 		if ce, ok := errors.AsType[*CmdError](err); ok {
 			ce.cmd = name
 			if ce.response != "" {
-				if err := h.sendFollowup(ce.response, true, true, ctx); err != nil {
+				if err := h.sendFollowup(ce.response, true, true, cctx); err != nil {
 					return err
 				}
 			}
@@ -125,18 +144,18 @@ func (h *CmdHandler) HandleCommand(name string, ctx CmdContext) error {
 	return nil
 }
 
-func (h *CmdHandler) handleSay(ctx CmdContext) error {
-	if err := h.deferInteractionResponse(ctx); err != nil {
+func (h *CmdHandler) handleSay(cctx CmdContext) error {
+	if err := h.deferInteractionResponse(cctx); err != nil {
 		return &CmdError{err: err}
 	}
 
 	var word string
-	if opt := ctx.i.ApplicationCommandData().GetOption("word"); opt != nil {
+	if opt := cctx.i.ApplicationCommandData().GetOption("word"); opt != nil {
 		word = opt.StringValue()
 	}
 
-	if sentence, err := h.generateSentence(ctx, word); err == nil {
-		if err := h.sendFollowup(sentence, false, false, ctx); err != nil {
+	if sentence, err := h.generateSentence(cctx, word); err == nil {
+		if err := h.sendFollowup(sentence, false, false, cctx); err != nil {
 			return &CmdError{err: err}
 		}
 	} else if errors.Is(err, model.UnknownWordErr) {
@@ -155,19 +174,19 @@ func (h *CmdHandler) handleSay(ctx CmdContext) error {
 	return nil
 }
 
-func (h *CmdHandler) handleReply(ctx CmdContext) error {
-	if err := h.deferInteractionResponse(ctx); err != nil {
+func (h *CmdHandler) handleReply(cctx CmdContext) error {
+	if err := h.deferInteractionResponse(cctx); err != nil {
 		return &CmdError{err: err}
 	}
 
 	var user *discordgo.User
-	if opt := ctx.i.ApplicationCommandData().GetOption("user"); opt != nil {
-		user = opt.UserValue(ctx.s)
+	if opt := cctx.i.ApplicationCommandData().GetOption("user"); opt != nil {
+		user = opt.UserValue(cctx.s)
 	} else {
 		return &CmdError{msg: "error getting user", response: "Couldn't find user"}
 	}
 
-	msg, err := findUserMessage(user.ID, ctx.i.ChannelID, 15, ctx.s)
+	msg, err := findUserMessage(user.ID, cctx.i.ChannelID, h.config.msgSearchLimit, cctx.s)
 	if err != nil {
 		return &CmdError{
 			msg:      "error getting messages",
@@ -182,11 +201,11 @@ func (h *CmdHandler) handleReply(ctx CmdContext) error {
 		word = seq[0]
 	}
 
-	if sentence, err := h.generateSentence(ctx, word); err == nil {
-		if err := ctx.s.InteractionResponseDelete(ctx.i); err != nil {
+	if sentence, err := h.generateSentence(cctx, word); err == nil {
+		if err := cctx.s.InteractionResponseDelete(cctx.i); err != nil {
 			return &CmdError{msg: "error removing response", err: err}
 		}
-		if _, err := ctx.s.ChannelMessageSendReply(ctx.i.ChannelID, sentence, msg.Reference()); err != nil {
+		if _, err := cctx.s.ChannelMessageSendReply(cctx.i.ChannelID, sentence, msg.Reference()); err != nil {
 			return &CmdError{msg: "error replying to message", err: err}
 		}
 	} else if errors.Is(err, model.UnknownWordErr) {
@@ -205,23 +224,23 @@ func (h *CmdHandler) handleReply(ctx CmdContext) error {
 	return nil
 }
 
-func (h *CmdHandler) sendFollowup(msg string, eph, remove_prev bool, ctx CmdContext) error {
+func (h *CmdHandler) sendFollowup(msg string, eph, remove_prev bool, cctx CmdContext) error {
 	if remove_prev {
-		ctx.s.InteractionResponseDelete(ctx.i)
+		cctx.s.InteractionResponseDelete(cctx.i)
 	}
 	params := &discordgo.WebhookParams{Content: msg}
 	if eph {
 		params.Flags = discordgo.MessageFlagsEphemeral
 	}
 
-	if _, err := ctx.s.FollowupMessageCreate(ctx.i, false, params); err != nil {
+	if _, err := cctx.s.FollowupMessageCreate(cctx.i, false, params); err != nil {
 		return fmt.Errorf("error sending messae followup: %w", err)
 	}
 	return nil
 }
 
-func (h *CmdHandler) deferInteractionResponse(ctx CmdContext) error {
-	if err := ctx.s.InteractionRespond(ctx.i, &discordgo.InteractionResponse{
+func (h *CmdHandler) deferInteractionResponse(cctx CmdContext) error {
+	if err := cctx.s.InteractionRespond(cctx.i, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	}); err != nil {
 		return fmt.Errorf("error deferring response: %w", err)
@@ -230,14 +249,15 @@ func (h *CmdHandler) deferInteractionResponse(ctx CmdContext) error {
 }
 
 // Returns error if sentence generation failed and interaction followup was attempted.
-func (h *CmdHandler) generateSentence(ctx CmdContext, start string) (string, error) {
+func (h *CmdHandler) generateSentence(cctx CmdContext, start string) (string, error) {
 	start = internal.CleanString(start)
-	markov := model.NewDBModel(h.db, ctx.i.GuildID)
+	markov := model.NewDBModel(h.db, cctx.i.GuildID)
 
-	sentence, err := markov.GenerateSentence(start, ctx.ctx)
+	sentence, err := markov.GenerateSentence(start, cctx.ctx)
 	if err != nil {
 		return "", err
 	}
+	h.logger.Debug(fmt.Sprintf("generated %q from word %q", sentence, start))
 	return sentence, nil
 }
 

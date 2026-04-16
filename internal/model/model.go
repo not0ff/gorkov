@@ -84,16 +84,16 @@ func (m *DBModel) AddTransitions(strs []string, ctx context.Context) ([]string, 
 	defer tx.Rollback()
 	qtx := m.queries.WithTx(tx)
 
-	wordIds := map[string]int64{}
-	getWordId := func(word string) (int64, error) {
-		if id, ok := wordIds[word]; ok {
+	wordIDs := map[string]int64{}
+	getWordID := func(word string) (int64, error) {
+		if id, ok := wordIDs[word]; ok {
 			return id, nil
 		}
 		id, err := qtx.CreateWord(ctx, word)
 		if err != nil {
 			return 0, err
 		}
-		wordIds[word] = id
+		wordIDs[word] = id
 		return id, nil
 	}
 
@@ -107,19 +107,19 @@ func (m *DBModel) AddTransitions(strs []string, ctx context.Context) ([]string, 
 		words = append(words, seq...)
 
 		for _, p := range Ngram(seq, 2) {
-			wordId, err := getWordId(p[0])
+			wordID, err := getWordID(p[0])
 			if err != nil {
 				return nil, fmt.Errorf("error creating first word: %w", err)
 			}
 
-			nextId, err := getWordId(p[1])
+			nextID, err := getWordID(p[1])
 			if err != nil {
 				return nil, fmt.Errorf("error creating second word: %w", err)
 			}
 
 			trans_id, err := qtx.CreateTransition(ctx, queries.CreateTransitionParams{
-				WordID: wordId,
-				NextID: nextId,
+				WordID: wordID,
+				NextID: nextID,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("error creating transition: %w", err)
@@ -149,7 +149,7 @@ func (m *DBModel) CalcProbabilitiesForWords(words []string, ctx context.Context)
 	qtx := m.queries.WithTx(tx)
 
 	for _, w := range words {
-		id, err := qtx.GetWordId(ctx, w)
+		id, err := qtx.GetWordID(ctx, w)
 		if err != nil {
 			return fmt.Errorf("error getting id for word \"%s\": %w", w, err)
 		}
@@ -159,7 +159,7 @@ func (m *DBModel) CalcProbabilitiesForWords(words []string, ctx context.Context)
 			WordID:  id,
 		})
 		if err != nil {
-			return fmt.Errorf("error getting probabilities for wordId %d and guildId %s: %w", id, m.guildID, err)
+			return fmt.Errorf("error getting probabilities for wordID %d and guildID %s: %w", id, m.guildID, err)
 		}
 
 		var count int64
@@ -198,7 +198,7 @@ func (m *DBModel) CalcAllProbabilities(ctx context.Context) error {
 			WordID:  w.ID,
 		})
 		if err != nil {
-			return fmt.Errorf("error getting probabilities for wordId %d and guildId %s: %w", w.ID, m.guildID, err)
+			return fmt.Errorf("error getting probabilities for wordID %d and guildID %s: %w", w.ID, m.guildID, err)
 
 		}
 
@@ -221,7 +221,7 @@ func (m *DBModel) CalcAllProbabilities(ctx context.Context) error {
 }
 
 func (m *DBModel) nextWord(word string, ctx context.Context) (string, error) {
-	id, err := m.queries.GetWordId(ctx, word)
+	id, err := m.queries.GetWordID(ctx, word)
 	if err != nil {
 		return "", fmt.Errorf("error getting id for word \"%s\": %w", word, err)
 	}
@@ -233,7 +233,7 @@ func (m *DBModel) nextWord(word string, ctx context.Context) (string, error) {
 	if errors.Is(err, sql.ErrNoRows) || len(probs) == 0 {
 		return "", sql.ErrNoRows
 	} else if err != nil {
-		return "", fmt.Errorf("error getting probabilities for wordId %d and guildId %s: %w", id, m.guildID, err)
+		return "", fmt.Errorf("error getting probabilities for wordID %d and guildID %s: %w", id, m.guildID, err)
 	}
 	r := rand.Float64()
 	var prob float64

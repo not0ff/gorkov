@@ -22,8 +22,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-func findUserMessage(userID, channelID string, last_limit uint, s *discordgo.Session) (*discordgo.Message, error) {
-	msgs, err := s.ChannelMessages(channelID, int(last_limit), "", "", "")
+func findUserMessage(userID, channelID string, searchLimit uint, s *discordgo.Session) (*discordgo.Message, error) {
+	msgs, err := s.ChannelMessages(channelID, int(searchLimit), "", "", "")
 	if err != nil {
 		return nil, fmt.Errorf("error fetching messages from channel %s: %w", channelID, err)
 	}
@@ -36,7 +36,7 @@ func findUserMessage(userID, channelID string, last_limit uint, s *discordgo.Ses
 		}
 	}
 	if msg == nil {
-		return nil, fmt.Errorf("message by user not found in last %d messages on channel", last_limit)
+		return nil, fmt.Errorf("message by user not found in last %d messages on channel", searchLimit)
 	}
 	return msg, nil
 }

@@ -45,7 +45,11 @@ func NewHandler(logger *slog.Logger, db *sql.DB, config Config) *Handler {
 		config:     config,
 	}
 
-	ch := NewCmdHandler(logger, db)
+	ch := NewCmdHandler(logger, db, CmdConfig{
+		responseTimeout: config.responseTimeout,
+		msgSearchLimit:  config.msgSearchLimit,
+		replyMode:       config.replyMode,
+	})
 	h.cmdHandler = ch
 
 	return h
@@ -66,10 +70,7 @@ func (h *Handler) Deinit(s *discordgo.Session) error {
 
 func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	logger := h.logger.With("guildID", i.GuildID)
-
-	ctx, cancel := context.WithTimeout(context.Background(), h.config.response_timeout)
-	defer cancel()
-	cctx := CmdContext{ctx: ctx, s: s, i: i.Interaction}
+	cctx := CmdContext{s: s, i: i.Interaction}
 
 	name := i.ApplicationCommandData().Name
 	if err := h.cmdHandler.HandleCommand(name, cctx); err != nil {
@@ -81,11 +82,9 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
+	ctx := context.Background()
 	logger := h.logger.With("guildID", m.GuildID)
 	markov := model.NewDBModel(h.db, m.GuildID)
-
-	ctx, cancel := context.WithTimeout(context.Background(), h.config.response_timeout)
-	defer cancel()
 
 	str := internal.CleanString(m.Content)
 	words, err := markov.AddTransitions([]string{str}, ctx)
