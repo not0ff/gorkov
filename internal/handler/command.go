@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -195,11 +194,8 @@ func (h *CmdHandler) handleReply(cctx CmdContext) error {
 		}
 	}
 
-	var word string
-	seq := strings.Fields(msg.Content)
-	if len(seq) != 0 {
-		word = seq[0]
-	}
+	str := internal.CleanString(msg.Content)
+	word := getStartWord(str, h.config.replyMode)
 
 	if sentence, err := h.generateSentence(cctx, word); err == nil {
 		if err := cctx.s.InteractionResponseDelete(cctx.i); err != nil {

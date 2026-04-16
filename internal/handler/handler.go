@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/not0ff/gorkov/internal"
@@ -85,8 +86,23 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 	ctx := context.Background()
 	logger := h.logger.With("guildID", m.GuildID)
 	markov := model.NewDBModel(h.db, m.GuildID)
-
 	str := internal.CleanString(m.Content)
+
+	if rand.Float32() <= h.config.replyChance {
+		start := getStartWord(str, h.config.replyMode)
+		response, err := markov.GenerateSentence(start, ctx)
+		if err != nil {
+			logger.Error(fmt.Sprintf("error generating response from word %q", start), slog.Any("error", err))
+			return
+		}
+		h.logger.Debug(fmt.Sprintf("generated %q from word %q", response, start))
+
+		if _, err := s.ChannelMessageSendReply(m.ChannelID, response, m.Reference()); err != nil {
+			logger.Error("error replying to message", slog.Any("error", err))
+			return
+		}
+	}
+
 	words, err := markov.AddTransitions([]string{str}, ctx)
 	if err != nil {
 		logger.Error(fmt.Sprintf("error adding transitions for %q", str), slog.Any("error", err))

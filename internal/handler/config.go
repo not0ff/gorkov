@@ -37,7 +37,7 @@ func DefaultConfig() Config {
 	return Config{
 		responseTimeout: time.Second * 10,
 		msgSearchLimit:  15,
-		replyChance:     0.1,
+		replyChance:     0.05,
 		replyMode:       FirstWordReplyMode,
 		guildIDs:        nil,
 	}
