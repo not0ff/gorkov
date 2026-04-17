@@ -157,7 +157,7 @@ func (h *CmdHandler) handleSay(cctx CmdContext) error {
 		if err := h.sendFollowup(sentence, false, false, cctx); err != nil {
 			return &CmdError{err: err}
 		}
-	} else if errors.Is(err, model.UnknownWordErr) {
+	} else if errors.Is(err, model.UnknownStartWordErr) {
 		return &CmdError{
 			msg:      fmt.Sprintf("unknown word %q", word),
 			response: "Unknown word in sentence!",
@@ -204,7 +204,7 @@ func (h *CmdHandler) handleReply(cctx CmdContext) error {
 		if _, err := cctx.s.ChannelMessageSendReply(cctx.i.ChannelID, sentence, msg.Reference()); err != nil {
 			return &CmdError{msg: "error replying to message", err: err}
 		}
-	} else if errors.Is(err, model.UnknownWordErr) {
+	} else if errors.Is(err, model.UnknownStartWordErr) {
 		return &CmdError{
 			msg:      fmt.Sprintf("unknown word %q", word),
 			response: "Unknown word in sentence!",

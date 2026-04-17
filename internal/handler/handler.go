@@ -86,8 +86,8 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 	ctx := context.Background()
 	logger := h.logger.With("guildID", m.GuildID)
 	markov := model.NewDBModel(h.db, m.GuildID)
-	str := internal.CleanString(m.Content)
 
+	str := internal.CleanString(m.Content)
 	if rand.Float32() <= h.config.replyChance {
 		start := getStartWord(str, h.config.replyMode)
 		response, err := markov.GenerateSentence(start, ctx)
@@ -103,12 +103,7 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 		}
 	}
 
-	words, err := markov.AddTransitions([]string{str}, ctx)
-	if err != nil {
-		logger.Error(fmt.Sprintf("error adding transitions for %q", str), slog.Any("error", err))
-		return
-	}
-	if err := markov.CalcProbabilitiesForWords(words, ctx); err != nil {
-		logger.Error(fmt.Sprintf("error calculating probabilities for words %q", words), slog.Any("error", err))
+	if err := markov.LearnSentences(ctx, str); err != nil {
+		logger.Error("error learning sentence from message", slog.Any("error", err))
 	}
 }

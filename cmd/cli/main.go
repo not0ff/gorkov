@@ -49,7 +49,7 @@ func updateModel(filepath string, model model.MarkovModel) error {
 	}
 	ctx := context.Background()
 	t := time.Now()
-	if _, err := model.AddTransitions(lines, ctx); err != nil {
+	if err := model.AddTransitions(ctx, lines...); err != nil {
 		return err
 	}
 	log.Printf("Creating transitions from file took: %s\n", time.Since(t).String())
@@ -132,7 +132,7 @@ func main() {
 	log.Printf("Updating model took: %s\n", time.Since(t).String())
 
 	t = time.Now()
-	if err := markov.CalcAllProbabilities(ctx); err != nil {
+	if err := markov.UpdateAllProbabilities(ctx); err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("Updating model probabilities took: %s\n", time.Since(t).String())
