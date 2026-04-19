@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -88,6 +89,7 @@ func NewCmdHandler(logger *slog.Logger, db *sql.DB, config CmdConfig) *CmdHandle
 	h.funcs = map[string]func(CmdContext) error{
 		"say":   h.handleSay,
 		"reply": h.handleReply,
+		"info":  h.handleInfo,
 	}
 
 	return h
@@ -160,7 +162,7 @@ func (h *CmdHandler) handleSay(cctx CmdContext) error {
 	} else if errors.Is(err, model.UnknownStartWordErr) {
 		return &CmdError{
 			msg:      fmt.Sprintf("unknown word %q", word),
-			response: "Unknown word in sentence!",
+			response: "Unknown initial word provided!",
 			err:      err,
 		}
 	} else {
@@ -220,6 +222,45 @@ func (h *CmdHandler) handleReply(cctx CmdContext) error {
 	return nil
 }
 
+func (h *CmdHandler) handleInfo(cctx CmdContext) error {
+	fields := make([]*discordgo.MessageEmbedField, 0, len(h.commands))
+	for _, c := range h.commands {
+		var options strings.Builder
+		for _, opt := range c.Options {
+			fmt.Fprintf(&options, "<%s> ", opt.Name)
+		}
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:  fmt.Sprintf("/%s %s", c.Name, options.String()),
+			Value: c.Description,
+		})
+	}
+
+	member, err := cctx.s.GuildMember(cctx.i.GuildID, cctx.s.State.User.ID)
+	if err != nil {
+		return err
+	}
+
+	if err := cctx.s.InteractionRespond(cctx.i, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+			Embeds: []*discordgo.MessageEmbed{
+				{
+					Title:       fmt.Sprintf("Info about %s:", member.DisplayName()),
+					Description: "This bot is powered by the divine intelligence of a markov chain model",
+					Fields:      fields,
+					Thumbnail: &discordgo.MessageEmbedThumbnail{
+						URL: cctx.s.State.User.AvatarURL(""),
+					},
+				},
+			},
+		},
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (h *CmdHandler) sendFollowup(msg string, eph, remove_prev bool, cctx CmdContext) error {
 	if remove_prev {
 		cctx.s.InteractionResponseDelete(cctx.i)
@@ -244,7 +285,6 @@ func (h *CmdHandler) deferInteractionResponse(cctx CmdContext) error {
 	return nil
 }
 
-// Returns error if sentence generation failed and interaction followup was attempted.
 func (h *CmdHandler) generateSentence(cctx CmdContext, start string) (string, error) {
 	start = internal.CleanString(start)
 	markov := model.NewDBModel(h.db, cctx.i.GuildID)
@@ -272,7 +312,7 @@ var commands = []*discordgo.ApplicationCommand{
 	},
 	{
 		Name:        "reply",
-		Description: "Reply to last message sent by user on this channel.",
+		Description: "Reply to last message sent by user on this channel",
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Type:        discordgo.ApplicationCommandOptionUser,
@@ -281,5 +321,9 @@ var commands = []*discordgo.ApplicationCommand{
 				Required:    true,
 			},
 		},
+	},
+	{
+		Name:        "info",
+		Description: "Show information about the bot",
 	},
 }

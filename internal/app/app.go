@@ -39,27 +39,8 @@ func NewApp(token string, logger *slog.Logger, dbConfig database.DbConfig, hConf
 	return &App{token: token, logger: logger, dbConfig: dbConfig, hConfig: hConfig}
 }
 
-func (a *App) setDiscordgoLogger() {
-	logger := a.logger
-	discordgo.Logger = func(msgL, caller int, format string, a ...any) {
-		// Formatting taken from:
-		// https://github.com/bwmarrin/discordgo/blob/v0.29.0/logging.go
-		pc, file, line, _ := runtime.Caller(caller)
-
-		files := strings.Split(file, "/")
-		file = files[len(files)-1]
-
-		name := runtime.FuncForPC(pc).Name()
-		fns := strings.Split(name, ".")
-		name = fns[len(fns)-1]
-
-		msg := fmt.Sprintf(format, a...)
-		logger.Info(fmt.Sprintf("[DG%d] %s:%d:%s() %s\n", msgL, file, line, name, msg))
-	}
-}
-
 func (a *App) Start(ctx context.Context) error {
-	a.setDiscordgoLogger()
+	setDiscordgoLogger(a.logger)
 
 	c, err := discordgo.New("Bot " + a.token)
 	if err != nil {
@@ -101,4 +82,22 @@ func (a *App) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func setDiscordgoLogger(logger *slog.Logger) {
+	discordgo.Logger = func(msgL, caller int, format string, a ...any) {
+		// Formatting taken from:
+		// https://github.com/bwmarrin/discordgo/blob/v0.29.0/logging.go
+		pc, file, line, _ := runtime.Caller(caller)
+
+		files := strings.Split(file, "/")
+		file = files[len(files)-1]
+
+		name := runtime.FuncForPC(pc).Name()
+		fns := strings.Split(name, ".")
+		name = fns[len(fns)-1]
+
+		msg := fmt.Sprintf(format, a...)
+		logger.Info(fmt.Sprintf("[DG%d] %s:%d:%s() %s\n", msgL, file, line, name, msg))
+	}
 }

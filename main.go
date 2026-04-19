@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/not0ff/gorkov/internal/app"
@@ -51,11 +52,11 @@ func init() {
 	flag.StringVar(&idstr, "guildIDs", "", "List of comma-separated guild ids for registering slash commands")
 	flag.Parse()
 
-	if idstr == "" {
+	GuildIDs = strings.Split(idstr, ",")
+	if slices.Contains(GuildIDs, "") {
 		fmt.Println("error: missing guild ids")
 		os.Exit(1)
 	}
-	GuildIDs = strings.Split(idstr, ",")
 
 	Token = os.Getenv("TOKEN")
 	if Token == "" {
