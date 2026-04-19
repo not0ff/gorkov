@@ -79,18 +79,18 @@ func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.Interacti
 	}
 }
 
-func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+func (h *Handler) HandleMessageCreation(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
 	ctx := context.Background()
 	logger := h.logger.With("guildID", m.GuildID)
-	markov := model.NewDBModel(h.db, m.GuildID)
+	dbmodel := model.NewDBModel(h.db, m.GuildID)
 
 	str := internal.CleanString(m.Content)
 	if rand.Float32() <= h.config.replyChance {
 		start := getStartWord(str, h.config.replyMode)
-		response, err := markov.GenerateSentence(start, ctx)
+		response, err := dbmodel.GenerateSentence(start, ctx)
 		if err != nil {
 			logger.Error(fmt.Sprintf("error generating response from word %q", start), slog.Any("error", err))
 			return
@@ -103,7 +103,7 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 		}
 	}
 
-	if err := markov.LearnSentences(ctx, str); err != nil {
+	if err := dbmodel.LearnSentences(ctx, str); err != nil {
 		logger.Error("error learning sentence from message", slog.Any("error", err))
 	}
 }

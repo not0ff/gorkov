@@ -54,7 +54,7 @@ func (a *App) Start(ctx context.Context) error {
 
 	h := handler.NewHandler(a.logger, db, a.hConfig)
 	c.AddHandler(h.HandleInteraction)
-	c.AddHandler(h.MessageCreate)
+	c.AddHandler(h.HandleMessageCreation)
 
 	c.Identify.Intents = discordgo.IntentsGuildMessages
 

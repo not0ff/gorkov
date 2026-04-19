@@ -287,9 +287,9 @@ func (h *CmdHandler) deferInteractionResponse(cctx CmdContext) error {
 
 func (h *CmdHandler) generateSentence(cctx CmdContext, start string) (string, error) {
 	start = internal.CleanString(start)
-	markov := model.NewDBModel(h.db, cctx.i.GuildID)
+	dbmodel := model.NewDBModel(h.db, cctx.i.GuildID)
 
-	sentence, err := markov.GenerateSentence(start, cctx.ctx)
+	sentence, err := dbmodel.GenerateSentence(start, cctx.ctx)
 	if err != nil {
 		return "", err
 	}

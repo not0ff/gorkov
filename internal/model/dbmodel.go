@@ -33,7 +33,7 @@ type DBModel struct {
 	guildID string
 }
 
-func NewDBModel(db *sql.DB, guildID string) MarkovModel {
+func NewDBModel(db *sql.DB, guildID string) *DBModel {
 	queries := queries.New(db)
 	dbModel := DBModel{
 		db: db, queries: queries, guildID: guildID,

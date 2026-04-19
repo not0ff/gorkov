@@ -63,12 +63,13 @@ func init() {
 		fmt.Println("error: auth token missing in env")
 		os.Exit(1)
 	}
-}
 
-func main() {
 	if err := ensureFilepath(DbPath); err != nil {
 		log.Fatal("error ensuring path to db exists", slog.Any("error", err))
 	}
+}
+
+func main() {
 	dbConfig := database.NewDbConfig(DbPath, Schema)
 	hConfig := handler.NewConfig(handler.WithGuildIDs(GuildIDs...))
 	logger := setupLogger()

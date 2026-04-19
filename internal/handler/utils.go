@@ -32,6 +32,10 @@ func findUserMessage(userID, channelID string, searchLimit uint, s *discordgo.Se
 
 	var msg *discordgo.Message
 	for _, m := range msgs {
+		// Skip deferred responses
+		if m.Flags&discordgo.MessageFlagsLoading != 0 {
+			continue
+		}
 		if m.Author.ID == userID {
 			msg = m
 			break
