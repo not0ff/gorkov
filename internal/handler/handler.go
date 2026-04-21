@@ -70,10 +70,10 @@ func (h *Handler) Deinit(s *discordgo.Session) error {
 }
 
 func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	logger := h.logger.With("guildID", i.GuildID)
-	cctx := CmdContext{s: s, i: i.Interaction}
-
 	name := i.ApplicationCommandData().Name
+	logger := h.logger.With("guildID", i.GuildID).With("command", name)
+
+	cctx := CmdContext{s: s, i: i.Interaction}
 	if err := h.cmdHandler.HandleCommand(name, cctx); err != nil {
 		logger.Error("error handling command", slog.Any("error", err))
 	}
@@ -95,8 +95,8 @@ func (h *Handler) HandleMessageCreation(s *discordgo.Session, m *discordgo.Messa
 			logger.Error(fmt.Sprintf("error generating response from word %q", start), slog.Any("error", err))
 			return
 		}
-		h.logger.Debug(fmt.Sprintf("generated %q from word %q", response, start))
 
+		h.logger.Debug(fmt.Sprintf("replying to message %q by %s with %q", m.Content, m.Author.Username, response))
 		if _, err := s.ChannelMessageSendReply(m.ChannelID, response, m.Reference()); err != nil {
 			logger.Error("error replying to message", slog.Any("error", err))
 			return

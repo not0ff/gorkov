@@ -41,6 +41,7 @@ func NewApp(token string, logger *slog.Logger, dbConfig database.DbConfig, hConf
 
 func (a *App) Start(ctx context.Context) error {
 	setDiscordgoLogger(a.logger)
+	a.logger.Info("starting client...")
 
 	c, err := discordgo.New("Bot " + a.token)
 	if err != nil {

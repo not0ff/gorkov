@@ -1,0 +1,16 @@
+.git
+.gitignore
+
+Dockerfile
+compose.yaml
+.dockerignore
+
+*.md
+
+queries.sql
+sqlc.yaml
+
+.env
+data/
+db/
+bin/

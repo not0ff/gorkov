@@ -1,0 +1,14 @@
+services:
+  gorkov:
+    build:
+      context: .
+    environment:
+    - TOKEN=${TOKEN}
+    - GUILDS=${GUILDS}
+    - DB_PATH=/db/db.sqlite
+    volumes:
+    - sqlite_data:/db
+
+volumes:
+  sqlite_data:
+    driver: local

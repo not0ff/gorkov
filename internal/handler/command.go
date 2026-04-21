@@ -130,6 +130,7 @@ func (h *CmdHandler) HandleCommand(name string, cctx CmdContext) error {
 
 	cctx = cctx.WithContext(ctx)
 
+	h.logger.Debug(fmt.Sprintf("handling command /%s", name))
 	if err := handler(cctx); err != nil {
 		if ce, ok := errors.AsType[*CmdError](err); ok {
 			ce.cmd = name
@@ -271,7 +272,7 @@ func (h *CmdHandler) sendFollowup(msg string, eph, remove_prev bool, cctx CmdCon
 	}
 
 	if _, err := cctx.s.FollowupMessageCreate(cctx.i, false, params); err != nil {
-		return fmt.Errorf("error sending messae followup: %w", err)
+		return fmt.Errorf("error sending message followup: %w", err)
 	}
 	return nil
 }

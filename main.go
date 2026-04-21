@@ -21,14 +21,13 @@ import (
 	_ "embed"
 	"errors"
 	"flag"
-	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/not0ff/gorkov/internal/app"
 	"github.com/not0ff/gorkov/internal/database"
@@ -43,43 +42,47 @@ var (
 	DbPath   string
 	Debug    bool
 	GuildIDs []string
+
+	Logger *slog.Logger
 )
 
 func init() {
+	Logger = setupLogger()
+
 	var idstr string
+	flag.StringVar(&Token, "token", "", "Discord auth token")
 	flag.StringVar(&DbPath, "db", "db/db.sqlite", "Path to db file (will be created if doesnt exist)")
-	flag.BoolVar(&Debug, "debug", false, "Enable debug mode for verbose logs")
 	flag.StringVar(&idstr, "guildIDs", "", "List of comma-separated guild ids for registering slash commands")
+	flag.BoolVar(&Debug, "debug", false, "Enable debug mode for verbose logs")
 	flag.Parse()
 
 	GuildIDs = strings.Split(idstr, ",")
 	if slices.Contains(GuildIDs, "") {
-		fmt.Println("error: missing guild ids")
+		Logger.Error("error: missing guild ids")
 		os.Exit(1)
 	}
 
-	Token = os.Getenv("TOKEN")
 	if Token == "" {
-		fmt.Println("error: auth token missing in env")
+		Logger.Error("error: auth token missing")
 		os.Exit(1)
 	}
 
 	if err := ensureFilepath(DbPath); err != nil {
-		log.Fatal("error ensuring path to db exists", slog.Any("error", err))
+		Logger.Error("error ensuring path to db exists", slog.Any("error", err))
+		os.Exit(1)
 	}
 }
 
 func main() {
 	dbConfig := database.NewDbConfig(DbPath, Schema)
 	hConfig := handler.NewConfig(handler.WithGuildIDs(GuildIDs...))
-	logger := setupLogger()
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	app := app.NewApp(Token, logger, dbConfig, hConfig)
+	app := app.NewApp(Token, Logger, dbConfig, hConfig)
 	if err := app.Start(ctx); err != nil {
-		log.Fatalf("error running bot client: %s", err)
+		Logger.Error("error running bot client", slog.Any("error", err))
 	}
 }
 
