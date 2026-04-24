@@ -18,8 +18,6 @@ package handler
 
 import (
 	"fmt"
-	"math/rand/v2"
-	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -45,19 +43,4 @@ func findUserMessage(userID, channelID string, searchLimit uint, s *discordgo.Se
 		return nil, fmt.Errorf("message by user not found in last %d messages on channel", searchLimit)
 	}
 	return msg, nil
-}
-
-func getStartWord(str string, mode ReplyMode) (w string) {
-	words := strings.Fields(str)
-	if len(words) == 0 {
-		return
-	}
-	switch mode {
-	case FirstWordReplyMode:
-		w = words[0]
-	case RandomWordReplyMode:
-		i := rand.IntN(len(words))
-		w = words[i]
-	}
-	return
 }

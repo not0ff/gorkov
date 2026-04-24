@@ -20,8 +20,6 @@ import (
 	"context"
 	_ "embed"
 	"errors"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 type MarkovModel interface {
@@ -40,6 +38,9 @@ type MarkovModel interface {
 	// Returns a sentence combining start word and generated rest.
 	// For empty start word generates from Beggining-Of-Sentence token.
 	GenerateSentence(start string, ctx context.Context) (string, error)
+
+	// Helper method selecting start word based on mode and calling GenerateSentence
+	ReplyToSentence(str string, mode ReplyMode, ctx context.Context) (string, error)
 }
 
 var (
@@ -51,4 +52,11 @@ var (
 const (
 	EOS = "<END>"
 	BOS = "<START>"
+)
+
+type ReplyMode uint8
+
+const (
+	FirstWordReplyMode ReplyMode = iota
+	RandomWordReplyMode
 )

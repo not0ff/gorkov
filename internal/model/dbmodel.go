@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 
 	"github.com/not0ff/gorkov/internal/queries"
@@ -267,4 +268,39 @@ func (m *DBModel) GenerateSentence(start string, ctx context.Context) (string, e
 		word = next
 	}
 	return strings.Join(sentence, " "), nil
+}
+
+// Selects random word from sentence until known is found or runs out of words
+func (m *DBModel) existingRandomWord(words []string, ctx context.Context) (string, error) {
+	for len(words) > 0 {
+		i := rand.IntN(len(words))
+		word := words[i]
+
+		if _, err := m.queries.GetWordID(ctx, word); err == nil {
+			return word, nil
+		}
+		words = slices.Delete(words, i, i+1)
+	}
+	return "", UnknownWordErr
+}
+
+func (m *DBModel) ReplyToSentence(str string, mode ReplyMode, ctx context.Context) (string, error) {
+	words := strings.Fields(str)
+	if len(words) == 0 {
+		return "", UnknownStartWordErr
+	}
+
+	var start string
+	switch mode {
+	case FirstWordReplyMode:
+		start = words[0]
+	case RandomWordReplyMode:
+		if word, err := m.existingRandomWord(words, ctx); err != nil {
+			return "", UnknownStartWordErr
+		} else {
+			start = word
+		}
+	}
+
+	return m.GenerateSentence(start, ctx)
 }

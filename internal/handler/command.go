@@ -65,7 +65,7 @@ func (cctx *CmdContext) WithContext(ctx context.Context) CmdContext {
 type CmdConfig struct {
 	responseTimeout time.Duration
 	msgSearchLimit  uint
-	replyMode       ReplyMode
+	replyMode       model.ReplyMode
 }
 
 type CmdHandler struct {
@@ -153,10 +153,11 @@ func (h *CmdHandler) handleSay(cctx CmdContext) error {
 
 	var word string
 	if opt := cctx.i.ApplicationCommandData().GetOption("word"); opt != nil {
-		word = opt.StringValue()
+		word = internal.CleanString(opt.StringValue())
 	}
 
-	if sentence, err := h.generateSentence(cctx, word); err == nil {
+	dbmodel := model.NewDBModel(h.db, cctx.i.GuildID)
+	if sentence, err := dbmodel.GenerateSentence(word, cctx.ctx); err == nil {
 		if err := h.sendFollowup(sentence, false, false, cctx); err != nil {
 			return &CmdError{err: err}
 		}
@@ -197,10 +198,10 @@ func (h *CmdHandler) handleReply(cctx CmdContext) error {
 		}
 	}
 
+	dbmodel := model.NewDBModel(h.db, cctx.i.GuildID)
 	str := internal.CleanString(msg.Content)
-	word := getStartWord(str, h.config.replyMode)
 
-	if sentence, err := h.generateSentence(cctx, word); err == nil {
+	if sentence, err := dbmodel.ReplyToSentence(str, h.config.replyMode, cctx.ctx); err == nil {
 		if err := cctx.s.InteractionResponseDelete(cctx.i); err != nil {
 			return &CmdError{msg: "error removing response", err: err}
 		}
@@ -209,13 +210,12 @@ func (h *CmdHandler) handleReply(cctx CmdContext) error {
 		}
 	} else if errors.Is(err, model.UnknownStartWordErr) {
 		return &CmdError{
-			msg:      fmt.Sprintf("unknown word %q", word),
 			response: "Unknown word in sentence!",
 			err:      err,
 		}
 	} else {
 		return &CmdError{
-			msg:      fmt.Sprintf("error generating sentence from word %q", word),
+			msg:      "error replying to sentence",
 			response: "I encountered an issue...",
 			err:      err,
 		}
@@ -284,18 +284,6 @@ func (h *CmdHandler) deferInteractionResponse(cctx CmdContext) error {
 		return fmt.Errorf("error deferring response: %w", err)
 	}
 	return nil
-}
-
-func (h *CmdHandler) generateSentence(cctx CmdContext, start string) (string, error) {
-	start = internal.CleanString(start)
-	dbmodel := model.NewDBModel(h.db, cctx.i.GuildID)
-
-	sentence, err := dbmodel.GenerateSentence(start, cctx.ctx)
-	if err != nil {
-		return "", err
-	}
-	h.logger.Debug(fmt.Sprintf("generated %q from word %q", sentence, start))
-	return sentence, nil
 }
 
 var commands = []*discordgo.ApplicationCommand{

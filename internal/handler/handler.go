@@ -89,10 +89,9 @@ func (h *Handler) HandleMessageCreation(s *discordgo.Session, m *discordgo.Messa
 
 	str := internal.CleanString(m.Content)
 	if rand.Float32() <= h.config.replyChance {
-		start := getStartWord(str, h.config.replyMode)
-		response, err := dbmodel.GenerateSentence(start, ctx)
+		response, err := dbmodel.ReplyToSentence(str, h.config.replyMode, ctx)
 		if err != nil {
-			logger.Error(fmt.Sprintf("error generating response from word %q", start), slog.Any("error", err))
+			logger.Error("error generating response", slog.Any("error", err))
 			return
 		}
 

@@ -16,20 +16,17 @@
 
 package handler
 
-import "time"
+import (
+	"time"
 
-type ReplyMode uint8
-
-const (
-	FirstWordReplyMode ReplyMode = iota
-	RandomWordReplyMode
+	"github.com/not0ff/gorkov/internal/model"
 )
 
 type Config struct {
 	responseTimeout time.Duration
 	msgSearchLimit  uint
 	replyChance     float32
-	replyMode       ReplyMode
+	replyMode       model.ReplyMode
 	guildIDs        []string
 }
 
@@ -38,7 +35,7 @@ func DefaultConfig() Config {
 		responseTimeout: time.Second * 10,
 		msgSearchLimit:  15,
 		replyChance:     0.05,
-		replyMode:       FirstWordReplyMode,
+		replyMode:       model.FirstWordReplyMode,
 		guildIDs:        nil,
 	}
 }
@@ -63,7 +60,7 @@ func WithReplyChance(ch float32) OptionFunc {
 	}
 }
 
-func WithReplyMode(m ReplyMode) OptionFunc {
+func WithReplyMode(m model.ReplyMode) OptionFunc {
 	return func(c *Config) {
 		c.replyMode = m
 	}
