@@ -22,6 +22,8 @@ import (
 	"github.com/not0ff/gorkov/internal/model"
 )
 
+const SplitOnPuncThreshold = 200
+
 type Config struct {
 	responseTimeout time.Duration
 	msgSearchLimit  uint

@@ -27,7 +27,7 @@ var (
 	regMention     = regexp.MustCompile(`/\<\@!?[0-9]{19}\>/g`)
 	regUrl         = regexp.MustCompile(`https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)`)
 	regEmbedUrl    = regexp.MustCompile(`\[.+\]\(https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)\)`)
-	sentenceDelims = []byte{'.', '?', '!', ';'}
+	sentenceDelims = []byte{'.', '?', '!', ';', '\n'}
 )
 
 func CleanString(s string) string {

@@ -30,14 +30,14 @@ import (
 	"github.com/not0ff/gorkov/internal/model"
 )
 
-type CmdError struct {
+type cmdError struct {
 	cmd      string
 	err      error
 	msg      string
 	response string
 }
 
-func (e *CmdError) Error() string {
+func (e *cmdError) Error() string {
 	var err string
 	if e.cmd != "" {
 		err += fmt.Sprintf("error in /%s", e.cmd)
@@ -51,34 +51,34 @@ func (e *CmdError) Error() string {
 	return err
 }
 
-type CmdContext struct {
+type cmdContext struct {
 	ctx context.Context
 	s   *discordgo.Session
 	i   *discordgo.Interaction
 }
 
-func (cctx *CmdContext) WithContext(ctx context.Context) CmdContext {
+func (cctx *cmdContext) WithContext(ctx context.Context) cmdContext {
 	cctx.ctx = ctx
 	return *cctx
 }
 
-type CmdConfig struct {
+type cmdConfig struct {
 	responseTimeout time.Duration
 	msgSearchLimit  uint
 	replyMode       model.ReplyMode
 }
 
-type CmdHandler struct {
+type cmdHandler struct {
 	db         *sql.DB
 	logger     *slog.Logger
-	config     CmdConfig
+	config     cmdConfig
 	commands   []*discordgo.ApplicationCommand
 	registered []*discordgo.ApplicationCommand
-	funcs      map[string]func(CmdContext) error
+	funcs      map[string]func(cmdContext) error
 }
 
-func NewCmdHandler(logger *slog.Logger, db *sql.DB, config CmdConfig) *CmdHandler {
-	h := &CmdHandler{
+func newCmdHandler(logger *slog.Logger, db *sql.DB, config cmdConfig) *cmdHandler {
+	h := &cmdHandler{
 		db:         db,
 		logger:     logger,
 		config:     config,
@@ -86,7 +86,7 @@ func NewCmdHandler(logger *slog.Logger, db *sql.DB, config CmdConfig) *CmdHandle
 		registered: make([]*discordgo.ApplicationCommand, 0, len(commands)),
 	}
 
-	h.funcs = map[string]func(CmdContext) error{
+	h.funcs = map[string]func(cmdContext) error{
 		"say":   h.handleSay,
 		"reply": h.handleReply,
 		"info":  h.handleInfo,
@@ -95,7 +95,7 @@ func NewCmdHandler(logger *slog.Logger, db *sql.DB, config CmdConfig) *CmdHandle
 	return h
 }
 
-func (h *CmdHandler) Register(guildID string, s *discordgo.Session) error {
+func (h *cmdHandler) Register(guildID string, s *discordgo.Session) error {
 	for _, c := range h.commands {
 		if _, ok := h.funcs[c.Name]; !ok {
 			return fmt.Errorf("cannot register command %q without handler", c.Name)
@@ -110,7 +110,7 @@ func (h *CmdHandler) Register(guildID string, s *discordgo.Session) error {
 	return nil
 }
 
-func (h *CmdHandler) Unregister(s *discordgo.Session) error {
+func (h *cmdHandler) Unregister(s *discordgo.Session) error {
 	for _, c := range h.registered {
 		if err := s.ApplicationCommandDelete(s.State.User.ID, c.GuildID, c.ID); err != nil {
 			return fmt.Errorf("error unregistering command %q from guild %q: %w", c.Name, c.GuildID, err)
@@ -120,19 +120,18 @@ func (h *CmdHandler) Unregister(s *discordgo.Session) error {
 	return nil
 }
 
-func (h *CmdHandler) HandleCommand(name string, cctx CmdContext) error {
+func (h *cmdHandler) HandleCommand(name string, cctx cmdContext) error {
 	handler, ok := h.funcs[name]
 	if !ok {
 		return fmt.Errorf("unknown command %q received", name)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), h.config.responseTimeout)
 	defer cancel()
-
 	cctx = cctx.WithContext(ctx)
 
 	h.logger.Debug(fmt.Sprintf("handling command /%s", name))
 	if err := handler(cctx); err != nil {
-		if ce, ok := errors.AsType[*CmdError](err); ok {
+		if ce, ok := errors.AsType[*cmdError](err); ok {
 			ce.cmd = name
 			if ce.response != "" {
 				if err := h.sendFollowup(ce.response, true, true, cctx); err != nil {
@@ -146,9 +145,9 @@ func (h *CmdHandler) HandleCommand(name string, cctx CmdContext) error {
 	return nil
 }
 
-func (h *CmdHandler) handleSay(cctx CmdContext) error {
+func (h *cmdHandler) handleSay(cctx cmdContext) error {
 	if err := h.deferInteractionResponse(cctx); err != nil {
-		return &CmdError{err: err}
+		return &cmdError{err: err}
 	}
 
 	var word string
@@ -159,16 +158,16 @@ func (h *CmdHandler) handleSay(cctx CmdContext) error {
 	dbmodel := model.NewDBModel(h.db, cctx.i.GuildID)
 	if sentence, err := dbmodel.GenerateSentence(word, cctx.ctx); err == nil {
 		if err := h.sendFollowup(sentence, false, false, cctx); err != nil {
-			return &CmdError{err: err}
+			return &cmdError{err: err}
 		}
 	} else if errors.Is(err, model.UnknownStartWordErr) {
-		return &CmdError{
+		return &cmdError{
 			msg:      fmt.Sprintf("unknown word %q", word),
 			response: "Unknown initial word provided!",
 			err:      err,
 		}
 	} else {
-		return &CmdError{
+		return &cmdError{
 			msg:      fmt.Sprintf("error generating sentence from word %q", word),
 			response: "I encountered an issue...",
 			err:      err,
@@ -177,21 +176,21 @@ func (h *CmdHandler) handleSay(cctx CmdContext) error {
 	return nil
 }
 
-func (h *CmdHandler) handleReply(cctx CmdContext) error {
+func (h *cmdHandler) handleReply(cctx cmdContext) error {
 	if err := h.deferInteractionResponse(cctx); err != nil {
-		return &CmdError{err: err}
+		return &cmdError{err: err}
 	}
 
 	var user *discordgo.User
 	if opt := cctx.i.ApplicationCommandData().GetOption("user"); opt != nil {
 		user = opt.UserValue(cctx.s)
 	} else {
-		return &CmdError{msg: "error getting user", response: "Couldn't find user"}
+		return &cmdError{msg: "error getting user", response: "Couldn't find user"}
 	}
 
 	msg, err := findUserMessage(user.ID, cctx.i.ChannelID, h.config.msgSearchLimit, cctx.s)
 	if err != nil {
-		return &CmdError{
+		return &cmdError{
 			msg:      "error getting messages",
 			response: "Couldn't find user's message",
 			err:      err,
@@ -201,20 +200,20 @@ func (h *CmdHandler) handleReply(cctx CmdContext) error {
 	dbmodel := model.NewDBModel(h.db, cctx.i.GuildID)
 	str := internal.CleanString(msg.Content)
 
-	if sentence, err := dbmodel.ReplyToSentence(str, h.config.replyMode, cctx.ctx); err == nil {
+	if reply, err := dbmodel.ReplyToSentence(str, h.config.replyMode, cctx.ctx); err == nil {
 		if err := cctx.s.InteractionResponseDelete(cctx.i); err != nil {
-			return &CmdError{msg: "error removing response", err: err}
+			return &cmdError{msg: "error removing response", err: err}
 		}
-		if _, err := cctx.s.ChannelMessageSendReply(cctx.i.ChannelID, sentence, msg.Reference()); err != nil {
-			return &CmdError{msg: "error replying to message", err: err}
+		if _, err := cctx.s.ChannelMessageSendReply(cctx.i.ChannelID, reply, msg.Reference()); err != nil {
+			return &cmdError{msg: "error replying to message", err: err}
 		}
 	} else if errors.Is(err, model.UnknownStartWordErr) {
-		return &CmdError{
+		return &cmdError{
 			response: "Unknown word in sentence!",
 			err:      err,
 		}
 	} else {
-		return &CmdError{
+		return &cmdError{
 			msg:      "error replying to sentence",
 			response: "I encountered an issue...",
 			err:      err,
@@ -223,7 +222,7 @@ func (h *CmdHandler) handleReply(cctx CmdContext) error {
 	return nil
 }
 
-func (h *CmdHandler) handleInfo(cctx CmdContext) error {
+func (h *cmdHandler) handleInfo(cctx cmdContext) error {
 	fields := make([]*discordgo.MessageEmbedField, 0, len(h.commands))
 	for _, c := range h.commands {
 		var options strings.Builder
@@ -262,7 +261,7 @@ func (h *CmdHandler) handleInfo(cctx CmdContext) error {
 	return nil
 }
 
-func (h *CmdHandler) sendFollowup(msg string, eph, remove_prev bool, cctx CmdContext) error {
+func (h *cmdHandler) sendFollowup(msg string, eph, remove_prev bool, cctx cmdContext) error {
 	if remove_prev {
 		cctx.s.InteractionResponseDelete(cctx.i)
 	}
@@ -277,7 +276,7 @@ func (h *CmdHandler) sendFollowup(msg string, eph, remove_prev bool, cctx CmdCon
 	return nil
 }
 
-func (h *CmdHandler) deferInteractionResponse(cctx CmdContext) error {
+func (h *cmdHandler) deferInteractionResponse(cctx cmdContext) error {
 	if err := cctx.s.InteractionRespond(cctx.i, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	}); err != nil {

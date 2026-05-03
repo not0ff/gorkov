@@ -23,23 +23,14 @@ import (
 )
 
 type MarkovModel interface {
-	// Adds transitions from each string to the model
-	AddTransitions(ctx context.Context, strs ...string) error
-
-	// Updates transition probabilities for words
-	UpdateProbabilities(ctx context.Context, words ...string) error
-
-	// Updates transition probabilities for all words in the model
-	UpdateAllProbabilities(ctx context.Context) error
-
-	// Convenience method adding transitions and updating probabilities for words in strs
+	// Learn sentences by adding transitions from each string to the model
 	LearnSentences(ctx context.Context, strs ...string) error
 
 	// Returns a sentence combining start word and generated rest.
 	// For empty start word generates from Beggining-Of-Sentence token.
 	GenerateSentence(start string, ctx context.Context) (string, error)
 
-	// Helper method selecting start word based on mode and calling GenerateSentence
+	// Selects start word based on reply mode and calls GenerateSentence
 	ReplyToSentence(str string, mode ReplyMode, ctx context.Context) (string, error)
 }
 

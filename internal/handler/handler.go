@@ -17,24 +17,24 @@
 package handler
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/not0ff/gorkov/internal"
 	"github.com/not0ff/gorkov/internal/model"
 )
 
-type CommandFunc func(CmdContext) error
-
 type Handler struct {
 	logger     *slog.Logger
 	db         *sql.DB
 	registered []*discordgo.ApplicationCommand
-	cmdHandler *CmdHandler
+	cmdHandler *cmdHandler
 	config     Config
 }
 
@@ -46,7 +46,7 @@ func NewHandler(logger *slog.Logger, db *sql.DB, config Config) *Handler {
 		config:     config,
 	}
 
-	ch := NewCmdHandler(logger, db, CmdConfig{
+	ch := newCmdHandler(logger, db, cmdConfig{
 		responseTimeout: config.responseTimeout,
 		msgSearchLimit:  config.msgSearchLimit,
 		replyMode:       config.replyMode,
@@ -73,7 +73,7 @@ func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.Interacti
 	name := i.ApplicationCommandData().Name
 	logger := h.logger.With("guildID", i.GuildID).With("command", name)
 
-	cctx := CmdContext{s: s, i: i.Interaction}
+	cctx := cmdContext{s: s, i: i.Interaction}
 	if err := h.cmdHandler.HandleCommand(name, cctx); err != nil {
 		logger.Error("error handling command", slog.Any("error", err))
 	}
@@ -87,9 +87,30 @@ func (h *Handler) HandleMessageCreation(s *discordgo.Session, m *discordgo.Messa
 	logger := h.logger.With("guildID", m.GuildID)
 	dbmodel := model.NewDBModel(h.db, m.GuildID)
 
-	str := internal.CleanString(m.Content)
+	var strs []string
+	for str := range strings.SplitSeq(m.Content, "\n") {
+		clean := internal.CleanString(str)
+		if len(clean) == 0 {
+			continue
+		}
+		if len(clean) < SplitOnPuncThreshold {
+			strs = append(strs, clean)
+			continue
+		}
+
+		scan := bufio.NewScanner(strings.NewReader(clean))
+		scan.Split(internal.ScanSentences)
+		for scan.Scan() {
+			strs = append(strs, scan.Text())
+		}
+
+	}
+	if len(strs) == 0 {
+		return
+	}
+
 	if rand.Float32() <= h.config.replyChance {
-		response, err := dbmodel.ReplyToSentence(str, h.config.replyMode, ctx)
+		response, err := dbmodel.ReplyToSentence(strs[0], h.config.replyMode, ctx)
 		if err != nil {
 			logger.Error("error generating response", slog.Any("error", err))
 			return
@@ -102,7 +123,9 @@ func (h *Handler) HandleMessageCreation(s *discordgo.Session, m *discordgo.Messa
 		}
 	}
 
-	if err := dbmodel.LearnSentences(ctx, str); err != nil {
-		logger.Error("error learning sentence from message", slog.Any("error", err))
+	for _, str := range strs {
+		if err := dbmodel.LearnSentences(ctx, str); err != nil {
+			logger.Error("error learning sentence from message", slog.Any("error", err))
+		}
 	}
 }

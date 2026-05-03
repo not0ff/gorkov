@@ -47,14 +47,13 @@ var (
 )
 
 func init() {
-	Logger = setupLogger()
-
 	var idstr string
 	flag.StringVar(&Token, "token", "", "Discord auth token")
 	flag.StringVar(&DbPath, "db", "db/db.sqlite", "Path to db file (will be created if doesnt exist)")
 	flag.StringVar(&idstr, "guildIDs", "", "List of comma-separated guild ids for registering slash commands")
 	flag.BoolVar(&Debug, "debug", false, "Enable debug mode for verbose logs")
 	flag.Parse()
+	Logger = setupLogger()
 
 	GuildIDs = strings.Split(idstr, ",")
 	if slices.Contains(GuildIDs, "") {
