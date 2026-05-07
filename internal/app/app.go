@@ -56,8 +56,10 @@ func (a *App) Start(ctx context.Context) error {
 	h := handler.NewHandler(a.logger, db, a.hConfig)
 	c.AddHandler(h.HandleInteraction)
 	c.AddHandler(h.HandleMessageCreation)
+	c.AddHandler(h.HandleNewReaction)
+	c.AddHandler(h.HandleRemovedReaction)
 
-	c.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent
+	c.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentGuildMessageReactions | discordgo.IntentsMessageContent
 
 	if err := c.Open(); err != nil {
 		return err

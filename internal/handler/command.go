@@ -90,6 +90,7 @@ func newCmdHandler(logger *slog.Logger, db *sql.DB, config cmdConfig) *cmdHandle
 		"say":   h.handleSay,
 		"reply": h.handleReply,
 		"info":  h.handleInfo,
+		// "reward": h.handleReward,
 	}
 
 	return h
@@ -222,6 +223,38 @@ func (h *cmdHandler) handleReply(cctx cmdContext) error {
 	return nil
 }
 
+// func (h *cmdHandler) handleReward(cctx cmdContext) error {
+// 	if err := h.deferInteractionResponse(cctx); err != nil {
+// 		return &cmdError{err: err}
+// 	}
+
+// 	var str string
+// 	if opt := cctx.i.ApplicationCommandData().GetOption("sentence"); opt != nil {
+// 		str = opt.StringValue()
+// 	} else {
+// 		return &cmdError{msg: "error getting sentence"}
+// 	}
+
+// 	var mult float64
+// 	if opt := cctx.i.ApplicationCommandData().GetOption("multiplier"); opt != nil {
+// 		c, err := strconv.ParseFloat(opt.StringValue(), 64)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		mult = c
+// 	} else {
+// 		return &cmdError{msg: "error getting sentence"}
+// 	}
+// 	h.logger.Info(str, slog.Float64("mult", mult))
+
+// 	dbmodel := model.NewDBModel(h.db, cctx.i.GuildID)
+// 	if err := dbmodel.RewardSentence(str, mult, cctx.ctx); err != nil {
+// 		return err
+// 	}
+
+// 	return h.sendFollowup("reward added", true, false, cctx)
+// }
+
 func (h *cmdHandler) handleInfo(cctx cmdContext) error {
 	fields := make([]*discordgo.MessageEmbedField, 0, len(h.commands))
 	for _, c := range h.commands {
@@ -314,4 +347,22 @@ var commands = []*discordgo.ApplicationCommand{
 		Name:        "info",
 		Description: "Show information about the bot",
 	},
+	// {
+	// 	Name:        "reward",
+	// 	Description: "the machine is hungry",
+	// 	Options: []*discordgo.ApplicationCommandOption{
+	// 		{
+	// 			Type:        discordgo.ApplicationCommandOptionString,
+	// 			Name:        "sentence",
+	// 			Description: "to be rewarded",
+	// 			Required:    true,
+	// 		},
+	// 		{
+	// 			Type:        discordgo.ApplicationCommandOptionString,
+	// 			Name:        "multiplier",
+	// 			Description: "it multiplies",
+	// 			Required:    true,
+	// 		},
+	// 	},
+	// },
 }

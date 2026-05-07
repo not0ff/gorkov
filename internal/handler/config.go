@@ -29,6 +29,7 @@ type Config struct {
 	msgSearchLimit  uint
 	replyChance     float32
 	replyMode       model.ReplyMode
+	reactionReward  float64
 	guildIDs        []string
 }
 
@@ -38,6 +39,7 @@ func DefaultConfig() Config {
 		msgSearchLimit:  15,
 		replyChance:     0.05,
 		replyMode:       model.FirstWordReplyMode,
+		reactionReward:  1.2,
 		guildIDs:        nil,
 	}
 }
@@ -65,6 +67,12 @@ func WithReplyChance(ch float32) OptionFunc {
 func WithReplyMode(m model.ReplyMode) OptionFunc {
 	return func(c *Config) {
 		c.replyMode = m
+	}
+}
+
+func WithReactionReward(mult float64) OptionFunc {
+	return func(c *Config) {
+		c.reactionReward = mult
 	}
 }
 

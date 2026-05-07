@@ -163,3 +163,42 @@ func (q *Queries) IncrementCount(ctx context.Context, arg IncrementCountParams) 
 	_, err := q.db.ExecContext(ctx, incrementCount, arg.GuildID, arg.TransitionID)
 	return err
 }
+
+const multiplyModifier = `-- name: MultiplyModifier :exec
+UPDATE counts
+SET modifier = counts.modifier * ?
+WHERE id = (
+    SELECT c.id
+    FROM counts c
+    INNER JOIN transitions t ON t.id
+    WHERE t.id = c.transition_id AND
+    c.guild_id = ? AND
+    t.word_id = (
+        SELECT id
+        FROM words
+        WHERE words.word = ?
+    ) AND
+    t.next_id = (
+        SELECT id
+        FROM words
+        WHERE words.word = ?
+    )
+)
+`
+
+type MultiplyModifierParams struct {
+	Modifier float64
+	GuildID  string
+	Word     string
+	Word_2   string
+}
+
+func (q *Queries) MultiplyModifier(ctx context.Context, arg MultiplyModifierParams) error {
+	_, err := q.db.ExecContext(ctx, multiplyModifier,
+		arg.Modifier,
+		arg.GuildID,
+		arg.Word,
+		arg.Word_2,
+	)
+	return err
+}

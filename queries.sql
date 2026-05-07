@@ -35,3 +35,24 @@ SELECT c.*, t.next_id
 FROM counts c
 INNER JOIN transitions t ON t.id = c.transition_id
 WHERE c.guild_id = ? AND t.word_id = ?;
+
+-- name: MultiplyModifier :exec
+UPDATE counts
+SET modifier = counts.modifier * ?
+WHERE id = (
+    SELECT c.id
+    FROM counts c
+    INNER JOIN transitions t ON t.id
+    WHERE t.id = c.transition_id AND
+    c.guild_id = ? AND
+    t.word_id = (
+        SELECT id
+        FROM words
+        WHERE words.word = ?
+    ) AND
+    t.next_id = (
+        SELECT id
+        FROM words
+        WHERE words.word = ?
+    )
+)

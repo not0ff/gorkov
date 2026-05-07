@@ -32,6 +32,11 @@ type MarkovModel interface {
 
 	// Selects start word based on reply mode and calls GenerateSentence
 	ReplyToSentence(str string, mode ReplyMode, ctx context.Context) (string, error)
+
+	// Changes probability of a sentence by multiplying
+	// the modifiers for word transitions by the provided amount.
+	// Reward is negative for 0<=mult<1.
+	RewardSentence(str string, mult float64, ctx context.Context) error
 }
 
 var (

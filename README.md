@@ -24,7 +24,7 @@ $ TOKEN=<token> GUILDS=<guild_1>,<guild_2> docker compose up -d --build
 - [x] Randomly responding to users
 - [x] Slash commands for direct control
 - [ ] Configuration workflow
-- [ ] Award and reinforce output using reactions
+- [x] Award and reinforce output using reactions
 
 ## License
 Licensed under GPLv3

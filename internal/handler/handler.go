@@ -123,9 +123,52 @@ func (h *Handler) HandleMessageCreation(s *discordgo.Session, m *discordgo.Messa
 		}
 	}
 
-	for _, str := range strs {
-		if err := dbmodel.LearnSentences(ctx, str); err != nil {
-			logger.Error("error learning sentence from message", slog.Any("error", err))
-		}
+	if err := dbmodel.LearnSentences(ctx, strs...); err != nil {
+		logger.Error("error learning sentences from message", slog.Any("error", err))
+	}
+}
+
+func (h *Handler) HandleNewReaction(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
+	ctx := context.Background()
+	logger := h.logger.With("guildID", r.GuildID)
+	dbmodel := model.NewDBModel(h.db, r.GuildID)
+
+	logger.Info("Handling ReactionAdd")
+	msg, err := s.ChannelMessage(r.ChannelID, r.MessageID)
+	if err != nil {
+		logger.Error("error fetching message from ReactionAdd event", slog.Any("error", err))
+		return
+	}
+	if msg.Author.ID != s.State.User.ID {
+		logger.Warn(fmt.Sprintf("%s != %s", msg.Author.ID, s.State.User.ID))
+		return
+	}
+
+	logger.Info(fmt.Sprintf("adding reward %f to sentence %s", h.config.reactionReward, msg.Content))
+	if err := dbmodel.RewardSentence(msg.Content, h.config.reactionReward, ctx); err != nil {
+		logger.Error("error adding reward to sentence", slog.Any("error", err))
+	}
+}
+
+func (h *Handler) HandleRemovedReaction(s *discordgo.Session, r *discordgo.MessageReactionRemove) {
+	ctx := context.Background()
+	logger := h.logger.With("guildID", r.GuildID)
+	dbmodel := model.NewDBModel(h.db, r.GuildID)
+
+	logger.Info("Handling ReactionRemove")
+	msg, err := s.ChannelMessage(r.ChannelID, r.MessageID)
+	if err != nil {
+		logger.Error("error fetching message from ReactionRemove event", slog.Any("error", err))
+		return
+	}
+	if msg.Author.ID != s.State.User.ID {
+		logger.Warn(fmt.Sprintf("%s != %s", msg.Author.ID, s.State.User.ID))
+		return
+	}
+
+	negReward := 1 / h.config.reactionReward
+	logger.Info(fmt.Sprintf("adding reward %f to sentence %s", negReward, msg.Content))
+	if err := dbmodel.RewardSentence(msg.Content, negReward, ctx); err != nil {
+		logger.Error("error removing reward from sentence", slog.Any("error", err))
 	}
 }

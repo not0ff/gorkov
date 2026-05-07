@@ -112,10 +112,7 @@ func (m *DBModel) LearnSentences(ctx context.Context, strs ...string) error {
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	return nil
+	return tx.Commit()
 }
 
 func (m *DBModel) nextWord(word string, ctx context.Context) (string, error) {
@@ -133,19 +130,23 @@ func (m *DBModel) nextWord(word string, ctx context.Context) (string, error) {
 	if errors.Is(err, sql.ErrNoRows) || len(counts) == 0 {
 		return "", errors.Join(sql.ErrNoRows, MissingTransitionsErr)
 	} else if err != nil {
-		return "", fmt.Errorf("error getting probabilities for wordID %d and guildID %s: %w", id, m.guildID, err)
+		return "", fmt.Errorf("error getting counts for wordID %d and guildID %s: %w", id, m.guildID, err)
 	}
 
-	var idx, sum, total int64
+	var sum, total float64
+	probs := make([]float64, 0, len(counts))
 	for _, c := range counts {
-		total += c.Count
+		prob := float64(c.Count) * c.Modifier
+		probs = append(probs, prob)
+		total += prob
 	}
 
-	r := rand.Int64N(total)
-	for i, c := range counts {
-		sum += c.Count
+	var idx int
+	r := rand.Float64() * total
+	for i, p := range probs {
+		sum += p
 		if r < sum {
-			idx = int64(i)
+			idx = i
 			break
 		}
 	}
@@ -226,4 +227,27 @@ func (m *DBModel) ReplyToSentence(str string, mode ReplyMode, ctx context.Contex
 	}
 
 	return m.GenerateSentence(start, ctx)
+}
+
+func (m *DBModel) RewardSentence(str string, mult float64, ctx context.Context) error {
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil
+	}
+	defer tx.Rollback()
+	qtx := m.queries.WithTx(tx)
+
+	words := wrapSlice(strings.Fields(str), BOS, EOS)
+	for _, pair := range ngram(words, 2) {
+		if err := qtx.MultiplyModifier(ctx, queries.MultiplyModifierParams{
+			Modifier: mult,
+			GuildID:  m.guildID,
+			Word:     pair[0],
+			Word_2:   pair[1],
+		}); err != nil {
+			return nil
+		}
+	}
+
+	return tx.Commit()
 }
